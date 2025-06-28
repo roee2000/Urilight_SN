@@ -1,0 +1,44 @@
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+!! Data file for MC code         !!
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+
+      $simulation
+        tinit=2.0d0,
+        tfinal=80.0d0,
+        ntimes=100
+        isuvoir=.true.
+      /
+
+      $mesh
+        dim=1,
+        nc1=100,
+        ejecta_type=10
+        mesh_type=2
+        vejfacmax=11.0d0
+        ismix=.true.
+        dmix=0.02d0
+        nmix=50
+        Mni0=0.7d0
+        Mfe0=0.1d0
+        Mime0=0.3d0
+        ekin=1.178d0
+        ni_fac=1d0
+      /
+
+      $atomic_physics
+        linelist='kuruczCD23'
+        pfdata='kuruczCD23'
+        etherm=0.8d0
+      /
+
+      $gamma
+        n_gammapellets=500000
+      /
+
+      $uvoir
+        n_uvoirpellets=1000000,
+        bin_type=1,
+        lmin=100.0d0,
+        lmax=30000.0d0,
+        deltal=10.0d0
+      /
