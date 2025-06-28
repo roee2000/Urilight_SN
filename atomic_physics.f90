@@ -87,7 +87,7 @@
 !!                                                                       !!
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 
-      open (unit=10,file='XXX/YYY/ionization_data')
+      open (unit=10,file='AtomicDataBase/ionization_data')
       eof=0
       do while (eof.eq.0)
         read(10,*,IOSTAT=eof) ZZ,LL,EN
@@ -230,7 +230,7 @@
 
       if (method.eq.1) then
 
-      filename='XXX/YYY/gfall.dat'
+      filename='AtomicDataBase/gfall.dat'
       zlist=.false.
 
 !!!   temporary allocation for big level array per isotop
@@ -278,7 +278,7 @@
 
       elseif (method.eq.2) then
 
-      filename='XXX/YYY/partfnall'
+      filename='AtomicDataBase/partfnall'
 
 !!!   temporary allocation for big level array per isotop
       do z=1,max_atoms
@@ -340,8 +340,8 @@
 !!    opt = 2 - build only partition functions              !!
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 
-      filename1='XXX/YYY/gfall.dat'
-      filename2='XXX/YYYlowhighlines'
+      filename1='AtomicDataBase/gfall.dat'
+      filename2='AtomicDataBase/lowhighlines'
       lentape(1)=564986
       lentape(2)=31627892+10268732
 
