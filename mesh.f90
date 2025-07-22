@@ -3,7 +3,7 @@
 ! CODE DESCRIPTION AND EXAMPLES IN WYGODA, ELBAZ AND KATZ 2018.
 !
 ! SET UP THE MESH AT BEGINNING OF THE RUN
-      module Mesh
+    module Mesh
       use globals
       use physical_constants
       use arrays
@@ -69,7 +69,7 @@
 
       ekin=ekin*1d51
       mej=mej*solar_mass
-      if (ejecta_type.eq.2) then
+      if (ejecta_type.eq.2 .or. ejecta_type.eq.4) then
         if (ekin.gt.0.0d0) vej=sqrt(ekin/mej*2.0d0*exp_dist_F2(vejfacmax)/exp_dist_F4(vejfacmax))
         vejmax=vejfacmax*vej
       endif
@@ -136,7 +136,7 @@
           mass(ind(i,1,1))=rho*vol
           rhov(ind(i,1,1))=1.0d0/vol
         enddo
-      elseif (ejecta_type.eq.2) then !! rho=exp(-v/vej)
+      elseif (ejecta_type.eq.2 .or. ejecta_type.eq.4) then !! rho=exp(-v/vej)
         do i=1,nc1
           if (mesh_type.eq.1) then 
 ! rho is defined as ro_0*t_0^3, which is equal to M(all)/(4*pi*v_e^3*F2(zmax)), and then m(z)=4*pi*rho*ve^3*(F2(z(i+1))-F2(z(i)))
@@ -169,7 +169,6 @@
 
       if (ejecta_type.lt.10) then
 !     set isotop distribution
-
       totmass=0.0d0
       do n=1,nc1
         i=ind(n,1,1)
@@ -203,6 +202,11 @@
             atoms(indiso(6,12),i)=0.5d0      ! C
             atoms(indiso(8,16),i)=0.5d0      ! O
           endif
+        elseif (ejecta_type.eq.4) then
+          ! Set constant composition for all cells
+          atoms(indiso(28,56),i)=0.2d0        ! nickel (20%)
+          atoms(indiso(1,1),i)=0.4d0         ! H (40%)
+          atoms(indiso(8,16),i)=0.4d0        ! O (40%)
         endif
         atoms(:,i)=mass(i)*atoms(:,i)/iso(1:niso)%A
       enddo
@@ -214,10 +218,9 @@
 
       if (ejecta_type.eq.10) then !! read profile from file.
       filename='XXX'
-! write the rest of this part according to the file format.
       endif
 
-      elseif (dim.eq.2) then
+    elseif (dim.eq.2) then
 
 !     AA(1)=m_h1
 !     ZZ(1)=1.0d0

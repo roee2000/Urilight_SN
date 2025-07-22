@@ -67,7 +67,7 @@ clean:
 	rm -rf $(BUILD_DIR)
 
 rclean:
-	rm -f fort.* out profile-* totals spectrum_uvoir luminocity ejecta_profile run.e* run.o* magnitude
+	rm -fr fort.* out profile* totals spectrum_uvoir luminocity ejecta_profile run.e* run.o* magnitude
 
 .PHONY: clean all rclean
 

@@ -213,19 +213,45 @@
 
       subroutine diag_write_profiles(nt)
       integer , intent(in) :: nt
-      integer :: nb
-      character*20 :: namefile,chf
+      integer :: nb, ios
+      character(256) :: namefile, dirname
+      character(3) :: chf
+      logical :: dir_exists
 
-      IF (NT.LT.10) THEN
-        WRITE(CHF,1101) NT
-      ELSE IF (NT.LT.100) THEN
-        WRITE(CHF,1102) NT
-      ELSE
-        WRITE(CHF,1103) NT
-      ENDIF
-        namefile='profile'//chf
+      ! Check if profile directory exists
+      dirname = 'profile'
+      inquire(file=trim(dirname)//'/.', exist=dir_exists)
+      
+      ! If directory doesn't exist, create it
+      if (.not. dir_exists) then
+#ifdef __INTEL_COMPILER
+          call system('mkdir -p '//trim(dirname))
+#else
+          call execute_command_line('mkdir -p '//trim(dirname), wait=.true., exitstat=ios)
+          if (ios /= 0) then
+              print *, 'Error creating directory: ', trim(dirname)
+              return
+          endif
+#endif
+      endif
 
-      OPEN(UNIT=50,file=namefile,POSITION='APPEND')
+      ! Generate consistent filename with leading zeros
+      if (nt < 10) then
+        write(chf,'(I1)') nt
+      else if (nt < 100) then
+        write(chf,'(I2.2)') nt
+      else
+        write(chf,'(I3.3)') nt
+      endif
+      
+      namefile = trim(dirname)//'/'//trim(chf)
+
+      ! Try to open the file
+      open(unit=50, file=namefile, position='append', iostat=ios)
+      if (ios /= 0) then
+        print *, 'Error opening profile file: ', trim(namefile)
+        return
+      endif
 
       write(50,1000) (edep_gamma(nt,1:nc1)+edep_pos(nt,1:nc1))/dt(nt)
       write(50,1000) nelec(1:nc1)
@@ -236,14 +262,12 @@
       write(50,1000) kappa_abs(1:nc1)
       write(50,1000) kappa_scat(1:nc1)
       do nb=1,nuvoir_bands
-      write(50,1000) emissivity(nb,1:nc1)
+        write(50,1000) emissivity(nb,1:nc1)
       enddo
 
       close(50)
+
 1000  format(1000(1pe14.6))
-1101  FORMAT('-',I3.3)
-1102  FORMAT('-',I3.3)
-1103  FORMAT('-',I3.3)
 
       return
       end subroutine diag_write_profiles
