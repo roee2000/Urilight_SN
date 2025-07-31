@@ -90,6 +90,7 @@
 !     call calc_rodr
       if (onlyrodr) stop
 
+      call write_timestamp_gamma()
       nprob=0
       nout=0
       ndep=0
@@ -395,5 +396,16 @@
 
       return
       end subroutine calc_rodr
+
+      subroutine write_timestamp_gamma()
+      use globals
+      implicit none
+      character(8) :: date
+      character(10) :: time
+      
+      call date_and_time(date, time)
+      write(fout,'("Gamma transport started: ",A4,"-",A2,"-",A2," ",A2,":",A2,":",A2)') &
+           date(1:4), date(5:6), date(7:8), time(1:2), time(3:4), time(5:6)
+      end subroutine write_timestamp_gamma
 
       end Module GammaTransfer

@@ -45,6 +45,7 @@
       data_file='data_file'
       open (unit=fout,file='out',position='append')
 
+      call write_timestamp('Simulation started')
       write(fout,*) 'Initializing simualtion'
       write(fout,*) '-----------------------'
 
@@ -75,5 +76,18 @@
 
       return
       end subroutine init_simulation
+
+      subroutine write_timestamp(message)
+      use globals
+      implicit none
+      character(*), intent(in) :: message
+      character(8) :: date
+      character(10) :: time
+      
+      call date_and_time(date, time)
+      write(fout,'(A,": ",A4,"-",A2,"-",A2," ",A2,":",A2,":",A2)') &
+           trim(message), date(1:4), date(5:6), date(7:8), &
+           time(1:2), time(3:4), time(5:6)
+      end subroutine write_timestamp
 
       end program UriLight

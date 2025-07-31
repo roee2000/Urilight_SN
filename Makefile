@@ -1,6 +1,6 @@
 # ---- Compiler settings ---------
 COMPILER=gfortran
-OPTIMIZATION=-O2 -cpp -ffree-line-length-none -fno-range-check
+OPTIMIZATION=-g -fcheck=bounds -fcheck=mem -cpp -ffree-line-length-none -fno-range-check
 LDFLAGS=-isysroot /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk
 
 # Build directory
@@ -67,7 +67,7 @@ clean:
 	rm -rf $(BUILD_DIR)
 
 rclean:
-	rm -fr fort.* out profile* totals spectrum_uvoir luminocity ejecta_profile run.e* run.o* magnitude
+	rm -fr fort.* out profile* totals spectrum_uvoir luminocity ejecta_profile run.e* run.o* magnitude opacity_cell_*
 
 .PHONY: clean all rclean
 

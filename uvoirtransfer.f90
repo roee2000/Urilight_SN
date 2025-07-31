@@ -75,7 +75,6 @@
       endif
 
       write(fout,nml=uvoir)
-
       spect_bins_uvoir(:)=spect_bins_uvoir(:)*angstrom
       allocate(dspect_bins_uvoir(nwavelengths))
       dspect_bins_uvoir(:)=spect_bins_uvoir(2:nwavelengths+1)-spect_bins_uvoir(1:nwavelengths)
@@ -149,7 +148,6 @@
 
       allocate(photon(totpel))
       nphotons=totpel
-
       return
       end subroutine init_uvoir
 
@@ -184,6 +182,7 @@
 
 !!!!! Main loop
       do nt=1,ntimes
+        call write_timestamp_uvoir(nt)
         fineiter=.false.
         niter=0
         write(fout,*  ) '----------------------------------------------'
@@ -213,7 +212,7 @@
 !     calculate opacities
             call calc_planck_int(bp(:,i),fnorm,reslow,reshigh,spect_bins_uvoir(:),temp(i))
             call calc_freefree_abs(alpha_ff(:,i),temp(i),nelec(i),&
-                  nions(0:niso,1:max_ion_levels),spect_bins_uvoir(:))
+                  nions(0:max_ion_levels,1:niso),spect_bins_uvoir(:))
             call expansion_opacity_LTE(alpha_abs_exp(:,i),alpha_scat_exp(:,i),teff(nt),temp(i),&
                  nions(0:max_ion_levels,1:niso),partition(0:max_ion_levels,1:niso),spect_bins_uvoir(:))
 
@@ -328,6 +327,10 @@
         write(fout,603) nprob(nt),sum(nprob(1:nt))
 
         call diag_write_profiles(nt)
+        !     Write opacity data for specified cell at each time step
+        if (cell_opac_print) then
+          call write_cell_opacity_timestep(nt)
+        endif
 
       enddo
 
@@ -529,8 +532,8 @@
       call calc_planck_int(bp(:,1),fnorm,reslow,reshigh,spect_bins_uvoir(:),tmp)
       call expansion_opacity_LTE(alpha_abs_exp(:,1),alpha_scat_exp(:,1),t,tmp,&
        nions(0:max_ion_levels,1:niso),partition(0:max_ion_levels,1:niso),spect_bins_uvoir(:))
-      call calc_freefree_abs(alpha_ff(:,1),tmp,ne,&
-                  nions(0:niso,1:max_ion_levels),spect_bins_uvoir(:))
+                  call calc_freefree_abs(alpha_ff(:,1),tmp,ne,&
+                  nions(0:max_ion_levels,1:niso),spect_bins_uvoir(:))
 
       fac1(:)=0.0d0
       fac2(:)=0.0d0
@@ -605,7 +608,7 @@
       call expansion_opacity_LTE(alpha_abs_exp(:,1),alpha_scat_exp(:,1),t,temp,&
        nions(0:max_ion_levels,1:niso),partition(0:max_ion_levels,1:niso),spect_bins_uvoir(:))
       call calc_freefree_abs(alpha_ff(:,1),temp,ne,&
-                  nions(0:niso,1:max_ion_levels),spect_bins_uvoir(:))
+                  nions(0:max_ion_levels,1:niso),spect_bins_uvoir(:))
 
       do k=1,nwavelengths
         lam=(spect_bins_uvoir(k)+spect_bins_uvoir(k+1))/2.0d0
@@ -617,5 +620,92 @@
       return
       end subroutine calc_alpha
 
+      subroutine write_timestamp_uvoir(nt)
+      use globals
+      implicit none
+      integer, intent(in) :: nt
+      character(8) :: date
+      character(10) :: time
+      
+      call date_and_time(date, time)
+      write(fout,'("UVOIR timestep ",I0,": ",A4,"-",A2,"-",A2," ",A2,":",A2,":",A2)') &
+           nt, date(1:4), date(5:6), date(7:8), time(1:2), time(3:4), time(5:6)
+      end subroutine write_timestamp_uvoir
+
+      subroutine write_cell_opacity_timestep(time_step)
+      integer, intent(in) :: time_step
+      integer :: k, file_unit, cell_index, i
+      real(8) :: lambda, alpha_abs_total, alpha_scat_total, density, time_days
+      character(50) :: filename
+      logical :: file_exists
+      ! Get target cell index
+      cell_index = cell_opac_print_i
+      ! Create filename
+      write(filename, '(A,I0,A)') 'opacity_cell_', cell_index, '.dat'
+      
+      ! Check if file exists to determine if we need to write header
+      inquire(file=filename, exist=file_exists)
+      
+      file_unit = 200
+      if (.not. file_exists) then
+        ! First time - create file and write lambda header
+        open(unit=file_unit, file=filename, status='new', action='write')
+        
+        ! Write lambda values (first line)
+        do k = 1, nwavelengths
+          lambda = (spect_bins_uvoir(k) + spect_bins_uvoir(k+1)) / 2.0d0
+          if (k == 1) then
+            write(file_unit, '(1PE14.6)', advance='no') lambda/angstrom
+          else
+            write(file_unit, '(1X,1PE14.6)', advance='no') lambda/angstrom
+          endif
+        enddo
+        write(file_unit, *) ! End line
+      else
+        ! Append to existing file
+        open(unit=file_unit, file=filename, status='old', position='append', action='write')
+      endif
+      
+      ! Write data for this time step (3 lines)
+      time_days = teff(time_step) / day
+      density = mass(ind(cell_index,1,1))*rhooft(rhov(cell_index), teff(time_step))
+      
+      ! Line 1+3i: t=, T=, rho=, abundances
+      write(file_unit, '(A,1PE12.4,A,1PE12.4,A,1PE12.4)', advance='no') &
+        't=', time_days, ' T=', temp(cell_index), ' rho=', density
+      ! Add abundances for active isotopes
+      do i = 1, niso
+        write(file_unit, '(1X,A,I0,A,I0,A,1PE12.4)', advance='no') &
+          'Z', iso(i)%Z, 'A', nint(iso(i)%A), '=', atoms(i, cell_index)
+      enddo
+      write(file_unit, *) ! End line
+      
+      ! Line 2+3i: alpha_abs for each k
+      do k = 1, nwavelengths
+        alpha_abs_total = alpha_abs_exp(k, cell_index) + alpha_ff(k, cell_index)
+        if (k == 1) then
+          write(file_unit, '(1PE14.6)', advance='no') alpha_abs_total
+        else
+          write(file_unit, '(1X,1PE14.6)', advance='no') alpha_abs_total
+        endif
+      enddo
+      write(file_unit, *) ! End line
+      
+      ! Line 3+3i: alpha_scat for each k
+      do k = 1, nwavelengths
+        alpha_scat_total = alpha_scat_exp(k, cell_index) + alpha_scat(cell_index)
+        if (k == 1) then
+          write(file_unit, '(1PE14.6)', advance='no') alpha_scat_total
+        else
+          write(file_unit, '(1X,1PE14.6)', advance='no') alpha_scat_total
+        endif
+      enddo
+      write(file_unit, *) ! End line
+      
+      close(file_unit)
+      write(fout, '(A,A,A,I0)') 'Opacity data written to: ', trim(filename), ' for time step ', time_step
+      
+      return
+      end subroutine write_cell_opacity_timestep
 
       end Module UvoirTransfer

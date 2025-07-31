@@ -52,6 +52,8 @@
       integer , save :: nlines
       real(8) , save :: etherm=1.0d0
       real(8) , save :: gfcut=-20d0
+      logical , save :: cell_opac_print=.false.
+      integer , save :: cell_opac_print_i=1
 
       contains
 
@@ -59,7 +61,7 @@
       integer :: i,j,k,n,ino,i1,i2
       integer :: eof,ZZ,LL,NN,nlevels
       real(8) :: gg,en
-      namelist /atomic_physics/ etherm,linelist,pfdata,gfcut
+      namelist /atomic_physics/ etherm,linelist,pfdata,gfcut,cell_opac_print,cell_opac_print_i
 
       open(unit=5,file=data_file)
       read(5,nml=atomic_physics,iostat=ino)
