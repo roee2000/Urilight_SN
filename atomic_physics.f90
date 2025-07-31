@@ -169,30 +169,30 @@
       niter=0
       conv=1.0d0
       do while (niter.lt.max1i .and. conv.gt.1.d-6)
-      neold=ne
-      nenew=0.0d0
-      nij=0.0d0
+        neold=ne
+        nenew=0.0d0
+        nij=0.0d0
         do i=1,niso
           if (ni(i).lt.eps) cycle
-!     step 3.1 - calculate netural ion n(i,j=0) density from 
-!                conservation equation ni(i)=sum(nij(i,j=0...max_ion_levels))
+          !     step 3.1 - calculate netural ion n(i,j=0) density from 
+          !                conservation equation ni(i)=sum(nij(i,j=0...max_ion_levels))
           A(1,i)=phi(1,i)/ne
           do j=2,max_ion_levels
             A(j,i)=A(j-1,i)*phi(j,i)/ne
           enddo
           nij(0,i)=ni(i)/(1.0d0+sum(A(:,i)))
-!     step 3.2 - calculate netural ion n(i,j=0) density from 
-!                conservation equation ni(i)=sum(nij(i,j=0...max_ion_levels))
+          !     step 3.2 - calculate netural ion n(i,j=0) density from 
+          !                conservation equation ni(i)=sum(nij(i,j=0...max_ion_levels))
           nij(1:max_ion_levels,i)=A(1:max_ion_levels,i)*nij(0,i)
-!     step 3.3 - calculate contribution to electron density
+          !     step 3.3 - calculate contribution to electron density
           do j=1,max_ion_levels
             nenew=nenew+dble(j)*nij(j,i)
           enddo
         enddo
 
-      ne=convfac*nenew+(1.0d0-convfac)*neold
-      conv=abs(ne-neold)/(neold+eps)
-      niter=niter+1
+        ne=convfac*nenew+(1.0d0-convfac)*neold
+        conv=abs(ne-neold)/(neold+eps)
+        niter=niter+1
       enddo
 
       if (niter.ge.max1i) then
@@ -206,15 +206,15 @@
       return
       end subroutine SahaIonization
 
-      subroutine prepare_partition_functions(method)
-!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-!!    Subroutine prepares partition functions tables as     !!
-!!    a function of temperatures for all relevant ions      !!
-!!    using one of several methos:                          !!
-!!                                                          !!
-!!    method = 1 - analyticaly from kurucz CD 23 line list  !!
-!!    method = 2 - ...                                      !!
-!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+    subroutine prepare_partition_functions(method)
+      !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+      !!    Subroutine prepares partition functions tables as     !!
+      !!    a function of temperatures for all relevant ions      !!
+      !!    using one of several methos:                          !!
+      !!                                                          !!
+      !!    method = 1 - analyticaly from kurucz CD 23 line list  !!
+      !!    method = 2 - ...                                      !!
+      !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
       integer , intent(in) :: method
       integer :: i,j,i1,i2,n,totlines,eof
       character*50 :: filename
@@ -229,91 +229,89 @@
 
 
       if (method.eq.1) then
+        filename='AtomicDataBase/gfall.dat'
+        zlist=.false.
 
-      filename='AtomicDataBase/gfall.dat'
-      zlist=.false.
-
-!!!   temporary allocation for big level array per isotop
-      do z=1,max_atoms
-        if (.not.atom(z)%active) cycle
-        zlist(z)=.true.
-        do ion=0,max_ion_levels
-          allocate(atom(z)%ion(ion)%partition(100))
-          allocate(atom(z)%ion(ion)%ptemp(100))
-          allocate(atom(z)%ion(ion)%level(5000))
-        enddo
-      enddo
-
-!!    read energy levels and sort
-      open (unit=10,file=filename)
-      nloc=1
-      nlines=0
-      eof=0
-      do while (eof.eq.0)
-        call get_kurucz_23_next_line(10,nloc,zlist(:),z,ion,lambda,fij,elo,glo,ehi,ghi,eof)
-        if (eof.eq.0) then
-          nlines=nlines+1
-          lvl%energy=elo
-          lvl%g=glo
-          call add_level(lvl,atom(z)%ion(ion)%level(:),atom(z)%ion(ion)%nlevels)
-          lvl%energy=ehi
-          lvl%g=ghi
-          call add_level(lvl,atom(z)%ion(ion)%level(:),atom(z)%ion(ion)%nlevels)
-        endif
-      enddo
-
-      close(10)
-
-!!    calculate partition functions
-      do z=1,max_atoms
-        if (.not.atom(z)%active) cycle
-        do ion=0,max_ion_levels
-          do n=1,100
-            atom(z)%ion(ion)%ptemp(n)=1000.0d0*dble(n)
-            atom(z)%ion(ion)%partition(n)=calc_partition(atom(z)%ion(ion)%ptemp(n),z,ion,1)
+        !!!   temporary allocation for big level array per isotop
+        do z=1,max_atoms
+          if (.not.atom(z)%active) cycle
+          zlist(z)=.true.
+          do ion=0,max_ion_levels
+            allocate(atom(z)%ion(ion)%partition(100))
+            allocate(atom(z)%ion(ion)%ptemp(100))
+            allocate(atom(z)%ion(ion)%level(5000))
           enddo
-          deallocate(atom(z)%ion(ion)%level)
         enddo
-      enddo
+
+        !!    read energy levels and sort
+        open (unit=10,file=filename)
+        nloc=1
+        nlines=0
+        eof=0
+        do while (eof.eq.0)
+          call get_kurucz_23_next_line(10,nloc,zlist(:),z,ion,lambda,fij,elo,glo,ehi,ghi,eof)
+          if (eof.eq.0) then
+            nlines=nlines+1
+            lvl%energy=elo
+            lvl%g=glo
+            call add_level(lvl,atom(z)%ion(ion)%level(:),atom(z)%ion(ion)%nlevels)
+            lvl%energy=ehi
+            lvl%g=ghi
+            call add_level(lvl,atom(z)%ion(ion)%level(:),atom(z)%ion(ion)%nlevels)
+          endif
+        enddo
+
+        close(10)
+
+        !!    calculate partition functions
+        do z=1,max_atoms
+          if (.not.atom(z)%active) cycle
+          do ion=0,max_ion_levels
+            do n=1,100
+              atom(z)%ion(ion)%ptemp(n)=1000.0d0*dble(n)
+              atom(z)%ion(ion)%partition(n)=calc_partition(atom(z)%ion(ion)%ptemp(n),z,ion,1)
+            enddo
+            deallocate(atom(z)%ion(ion)%level)
+          enddo
+        enddo
 
       elseif (method.eq.2) then
 
-      filename='AtomicDataBase/partfnall'
+        filename='AtomicDataBase/partfnall'
 
-!!!   temporary allocation for big level array per isotop
-      do z=1,max_atoms
-        if (.not.atom(z)%active) cycle
-        do ion=0,5
-          if (allocated(atom(z)%ion(ion)%partition)) then
-            deallocate(atom(z)%ion(ion)%ptemp)
-            deallocate(atom(z)%ion(ion)%partition)
-          endif
-          allocate(atom(z)%ion(ion)%ptemp(201))
-          allocate(atom(z)%ion(ion)%partition(201))
-        enddo
-      enddo
-
-!!    read energy levels and sort
-      open (unit=10,file=filename)
-      eof=0
-      npart=0
-      do while (eof.eq.0)
-        read(10,*,iostat=eof) z,temp,part(0:5)
-        if (eof.eq.0 .and. atom(z)%active) then
-          npart(z)=npart(z)+1
+        !!!   temporary allocation for big level array per isotop
+        do z=1,max_atoms
+          if (.not.atom(z)%active) cycle
           do ion=0,5
-            atom(z)%ion(ion)%ptemp(npart(z))=temp
-            atom(z)%ion(ion)%partition(npart(z))=part(ion)
+            if (allocated(atom(z)%ion(ion)%partition)) then
+              deallocate(atom(z)%ion(ion)%ptemp)
+              deallocate(atom(z)%ion(ion)%partition)
+            endif
+            allocate(atom(z)%ion(ion)%ptemp(201))
+            allocate(atom(z)%ion(ion)%partition(201))
           enddo
-        endif
-      enddo
+        enddo
 
-      close(10)
+        !!    read energy levels and sort
+        open (unit=10,file=filename)
+        eof=0
+        npart=0
+        do while (eof.eq.0)
+          read(10,*,iostat=eof) z,temp,part(0:5)
+          if (eof.eq.0 .and. atom(z)%active) then
+            npart(z)=npart(z)+1
+            do ion=0,5
+              atom(z)%ion(ion)%ptemp(npart(z))=temp
+              atom(z)%ion(ion)%partition(npart(z))=part(ion)
+            enddo
+          endif
+        enddo
 
+        close(10)
       endif
 
       return
-      end subroutine prepare_partition_functions
+    end subroutine prepare_partition_functions
 
       subroutine read_kurucz
       integer :: i,j,i1,i2,n,totlines,eof
@@ -382,7 +380,7 @@
       open (unit=12,file=filename2)
       nloc=1
       if (nlist1.gt.0) then
-      call get_kurucz_23_next_line(11,nloc(1),zlist1(:),z(1),ion(1),&
+        call get_kurucz_23_next_line(11,nloc(1),zlist1(:),z(1),ion(1),&
                     lambda(1),fij(1),elo(1),glo(1),ehi(1),ghi(1),eof)
       else
         lambda(1)=1.d99

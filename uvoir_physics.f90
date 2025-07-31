@@ -165,8 +165,6 @@
 
         g=atom(z)%ion(j)%level(k1)%g
         en1=atom(z)%ion(j)%level(k1)%energy
-!         en2=atom(z)%ion(j)%level(k2)%energy
-!         eline=en2-en1
         eline=planck*nu
 
 !       nijk=nij(j,i)*g*exp(-en1/kbt)/partition(j,i)
