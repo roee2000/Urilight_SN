@@ -1,5 +1,19 @@
+# Ignore everything
+*
+
+# But don't ignore these directories (must come before files)
+!src/
+!.git/
+
+# Don't ignore files inside src/
+!src/**
+
+# Don't ignore these important files
+!.gitignore
+!Makefile
+
+# Ignore build artifacts and output files (these are redundant but kept for clarity)
 out
-*/
-data_file
 ejecta_profile
 *.dat
+build/
