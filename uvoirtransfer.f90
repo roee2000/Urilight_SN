@@ -483,7 +483,7 @@
       return
       end subroutine track_uvoir
 
-      real(8) function photon_emission_LTE(eta,spect_bins)
+    real(8) function photon_emission_LTE(eta,spect_bins)
       real(8) , intent(in) :: eta(:),spect_bins(:)
       real(8) :: emissivity(size(eta))
       real(8) :: z
@@ -504,9 +504,9 @@
       lam2hnu=clight*planck/x
 
       return
-      end function lam2hnu
+    end function lam2hnu
 
-      subroutine calc_Kasens_emissivity(ro,t,fracs,nfile)
+    subroutine calc_Kasens_emissivity(ro,t,fracs,nfile)
       real(8) , intent(in) :: ro,t,fracs(niso)
       integer , intent(in) :: nfile
       real(8) :: ni(niso),nions(0:max_ion_levels,niso)
@@ -560,12 +560,12 @@
         write(nfile,1111) tmp,zavg,fac(:)
       enddo
 
-1111    format(10(1pe14.6))
+      1111    format(10(1pe14.6))
 
       return
-      end subroutine calc_Kasens_emissivity
+    end subroutine calc_Kasens_emissivity
 
-      real(8) function mean_emissivity(alpha,bp,ro,color)
+    real(8) function mean_emissivity(alpha,bp,ro,color)
       real(8) , intent(in) :: alpha(:),bp(:),ro
       character(3) , intent(in) :: color
       real(8) :: lam,fac,phi,phin
@@ -615,12 +615,12 @@
         write(nfile+100,1111) lam/angstrom,bp(k,1)/dspect_bins_uvoir(k),&
           (alpha_scat_exp(k,1)+alpha_abs_exp(k,1)),alpha_ff(k,1)
       enddo
-1111  format(10(1pe14.6))
+      1111  format(10(1pe14.6))
 
       return
-      end subroutine calc_alpha
+    end subroutine calc_alpha
 
-      subroutine write_timestamp_uvoir(nt)
+    subroutine write_timestamp_uvoir(nt)
       use globals
       implicit none
       integer, intent(in) :: nt
@@ -630,9 +630,9 @@
       call date_and_time(date, time)
       write(fout,'("UVOIR timestep ",I0,": ",A4,"-",A2,"-",A2," ",A2,":",A2,":",A2)') &
            nt, date(1:4), date(5:6), date(7:8), time(1:2), time(3:4), time(5:6)
-      end subroutine write_timestamp_uvoir
+    end subroutine write_timestamp_uvoir
 
-      subroutine write_cell_opacity_timestep(time_step)
+    subroutine write_cell_opacity_timestep(time_step)
       integer, intent(in) :: time_step
       integer :: k, file_unit, cell_index, i
       real(8) :: lambda, alpha_abs_total, alpha_scat_total, density, time_days
@@ -670,9 +670,9 @@
       time_days = teff(time_step) / day
       density = mass(ind(cell_index,1,1))*rhooft(rhov(cell_index), teff(time_step))
       
-      ! Line 1+3i: t=, T=, rho=, abundances
-      write(file_unit, '(A,1PE12.4,A,1PE12.4,A,1PE12.4)', advance='no') &
-        't=', time_days, ' T=', temp(cell_index), ' rho=', density
+      ! Line 1+3i: t=, Told=, Tnew=m rho=, abundances
+      write(file_unit, '(A,1PE12.4,A,1PE12.4,A,1PE12.4,A,1PE12.4)', advance='no') &
+        't= ', time_days, ' Told= ', temp_old(cell_index), ' Tnew= ', temp(cell_index), ' rho= ', density
       ! Add abundances for active isotopes
       do i = 1, niso
         write(file_unit, '(1X,A,I0,A,I0,A,1PE12.4)', advance='no') &
@@ -706,6 +706,6 @@
       write(fout, '(A,A,A,I0)') 'Opacity data written to: ', trim(filename), ' for time step ', time_step
       
       return
-      end subroutine write_cell_opacity_timestep
+    end subroutine write_cell_opacity_timestep
 
       end Module UvoirTransfer

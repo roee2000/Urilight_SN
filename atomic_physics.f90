@@ -162,7 +162,7 @@
 
 !     step 3: iterate to find nij
 
-!     first guess - assume all ions are fully ionized
+!     first guess - assume all ions have 1 ionized electron
       ne=sum(ni) 
 
       max1i=100       !! maximum number of iterations
@@ -830,7 +830,7 @@
           en=atom(z)%ion(ion)%level(k)%energy
           part=part+g*exp(-en/kbt)
         enddo
-
+        if (z.eq.ion)  part = 1
       elseif (method.eq.2) then
 
         i=find_index(temp,atom(z)%ion(ion)%ptemp(:),ierr)
