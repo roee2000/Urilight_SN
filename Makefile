@@ -13,7 +13,7 @@ $(shell mkdir -p $(BUILD_DIR))
 all: $(EXE)
 
 # Object files with build directory prefix
-OBJ= $(addprefix $(BUILD_DIR)/, globals.o physical_constants.o arrays.o general_functions.o transport_general_functions.o radioactive_decay.o randomnumbers.o mesh.o gammatransfer.o uvoirtransfer.o diagnostics.o gamma_physics.o atomic_physics.o uvoir_physics.o)
+OBJ= $(addprefix $(BUILD_DIR)/, globals.o physical_constants.o arrays.o general_functions.o transport_general_functions.o radioactive_decay.o randomnumbers.o mesh.o gammatransfer.o uvoirtransfer.o diagnostics.o gamma_physics.o atomic_physics.o uvoir_physics.o gray_opacity.o)
 
 $(EXE): $(OBJ) $(BUILD_DIR)/UriLight.o
 	$(COMPILER) $(OPTIMIZATION) $(LDFLAGS) -o $(EXE) $(BUILD_DIR)/UriLight.o $(OBJ)
@@ -54,10 +54,13 @@ $(BUILD_DIR)/gamma_physics.o: src/gamma_physics.f90 $(BUILD_DIR)/physical_consta
 $(BUILD_DIR)/uvoir_physics.o: src/uvoir_physics.f90 $(BUILD_DIR)/physical_constants.o $(BUILD_DIR)/atomic_physics.o
 	$(COMPILER) $(OPTIMIZATION) $(LDFLAGS) -J$(BUILD_DIR) -c $< -o $@
 
+$(BUILD_DIR)/gray_opacity.o: src/gray_opacity.f90 $(BUILD_DIR)/globals.o $(BUILD_DIR)/physical_constants.o
+	$(COMPILER) $(OPTIMIZATION) $(LDFLAGS) -J$(BUILD_DIR) -c $< -o $@
+
 $(BUILD_DIR)/gammatransfer.o: src/gammatransfer.f90 $(BUILD_DIR)/globals.o $(BUILD_DIR)/arrays.o $(BUILD_DIR)/general_functions.o $(BUILD_DIR)/transport_general_functions.o $(BUILD_DIR)/radioactive_decay.o $(BUILD_DIR)/randomnumbers.o $(BUILD_DIR)/mesh.o $(BUILD_DIR)/diagnostics.o $(BUILD_DIR)/gamma_physics.o
 	$(COMPILER) $(OPTIMIZATION) $(LDFLAGS) -J$(BUILD_DIR) -c $< -o $@
 
-$(BUILD_DIR)/uvoirtransfer.o: src/uvoirtransfer.f90 $(BUILD_DIR)/globals.o $(BUILD_DIR)/arrays.o $(BUILD_DIR)/general_functions.o $(BUILD_DIR)/transport_general_functions.o $(BUILD_DIR)/radioactive_decay.o $(BUILD_DIR)/randomnumbers.o $(BUILD_DIR)/mesh.o $(BUILD_DIR)/diagnostics.o $(BUILD_DIR)/atomic_physics.o $(BUILD_DIR)/physical_constants.o $(BUILD_DIR)/uvoir_physics.o
+$(BUILD_DIR)/uvoirtransfer.o: src/uvoirtransfer.f90 $(BUILD_DIR)/globals.o $(BUILD_DIR)/arrays.o $(BUILD_DIR)/general_functions.o $(BUILD_DIR)/transport_general_functions.o $(BUILD_DIR)/radioactive_decay.o $(BUILD_DIR)/randomnumbers.o $(BUILD_DIR)/mesh.o $(BUILD_DIR)/diagnostics.o $(BUILD_DIR)/atomic_physics.o $(BUILD_DIR)/physical_constants.o $(BUILD_DIR)/uvoir_physics.o $(BUILD_DIR)/gray_opacity.o
 	$(COMPILER) $(OPTIMIZATION) $(LDFLAGS) -J$(BUILD_DIR) -c $< -o $@
 
 $(BUILD_DIR)/UriLight.o: src/UriLight.f90 $(OBJ)

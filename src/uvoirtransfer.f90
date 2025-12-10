@@ -16,22 +16,25 @@
       use RandomNumbers
       use Mesh
       use diagnostics
+      use GrayOpacity
       implicit none
 
       real(8) , save :: Esource,EpelletUvoir
       integer , save :: nphotons
 
       integer , allocatable , save :: Ncreate(:) , Nleak(:) , Nprob(:)
+      real(8) , allocatable , save :: alpha_abs_gray(:), alpha_scat_gray(:), kappa_planck_gray(:), f_abs_gray(:)
 
       contains
 
-      subroutine init_uvoir
+    subroutine init_uvoir
       integer :: i,j,k,nt,totpel,ino,dn,bin_type
       real(8) :: lmin,lmax,deltal,deltav,qv
       real(8) :: ein
-      namelist /uvoir/ N_UvoirPellets,lmin,lmax,deltal,nwavelengths,deltav,bin_type
+      namelist /uvoir/ N_UvoirPellets,lmin,lmax,deltal,nwavelengths,deltav,bin_type,&
+                      use_gray_opacity,n_gray_materials,gray_opacity_table
 
-!!    default
+      !!    default
       spect_type_uvoir=2 !! bins by lambda 
 
       bin_type=1
@@ -43,7 +46,22 @@
 
       open(unit=5,file=data_file)
       read(5,nml=uvoir,iostat=ino)
+      if (ino /= 0) write(fout,*) 'WARNING: Cannot read uvoir namelist, iostat=', ino
       close(5)
+
+      ! Load gray opacity tables if enabled
+      if (use_gray_opacity) then
+        write(fout,*) 'Gray opacity mode enabled'
+        write(fout,*) 'Number of materials:', n_gray_materials
+        if (n_gray_materials > 0) then
+          do i = 1, n_gray_materials
+            call load_gray_opacity_table(gray_opacity_table(i), i)
+          enddo
+        else
+          write(fout,*) 'ERROR: use_gray_opacity=.true. but n_gray_materials=0'
+          stop
+        endif
+      endif
 
       if (bin_type.eq.1) then
         if (deltal.gt.0.0d0) then
@@ -71,7 +89,7 @@
         enddo
         write(fout,*) 'Using constant velocity wavelength binning'
         write(fout,1000) lmin,lmin*qv**nwavelengths,nwavelengths
-1000    format ('Lmin=',1pe10.2,' Lmax=',1pe10.2,' Nwavelengths=',I6)
+      1000    format ('Lmin=',1pe10.2,' Lmax=',1pe10.2,' Nwavelengths=',I6)
       endif
 
       write(fout,nml=uvoir)
@@ -91,6 +109,9 @@
       allocate (Ncreate(0:ntimes),Nleak(ntimes),Nprob(ntimes))
       allocate (spect_uvoir(nwavelengths,ntimes))
       allocate (bp(nwavelengths,nctot))
+      if (use_gray_opacity) then
+        allocate (alpha_abs_gray(nctot), alpha_scat_gray(nctot), kappa_planck_gray(nctot), f_abs_gray(nctot))
+      endif
       ncreate=0
       nleak=0
       nprob=0
@@ -124,7 +145,7 @@
         Esource=Esource+sum(Edep_gamma(nt,:))+sum(Edep_pos(nt,:))
         write(fout,1001) nt,sum(Edep_gamma(nt,:)),sum(Edep_pos(nt,:))
       enddo
-1001  format('time step=',I3,' Gamma deposition=',1pe10.2,&
+      1001  format('time step=',I3,' Gamma deposition=',1pe10.2,&
              ' ergs , Positron deposition=',1pe10.2,' ergs')
       write(fout,*) 'UVOIR Source=',Esource
 
@@ -149,9 +170,9 @@
       allocate(photon(totpel))
       nphotons=totpel
       return
-      end subroutine init_uvoir
+    end subroutine init_uvoir
 
-      subroutine uvoir_transport
+    subroutine uvoir_transport
       integer :: i,j,k,nt,np,npellets,ip,jp,kp,ierr,iphotons,nb
       logical :: fineiter
       logical :: inmesh,intime,isabs,isprob
@@ -160,7 +181,10 @@
       real(8) :: partition(0:max_ion_levels,niso)
       integer :: niter,ndep,nout,nsim,ndirect,nscat
       real(8) :: ne,Etotm,vm(3),conv,converge,converge1,totatoms,&
-                 vol,fnorm,edot,reslow,reshigh,kappa,ein
+                 vol,fnorm,edot,reslow,reshigh,kappa,ein,rho_actual
+      real(8) :: alpha_planck, sigma_sb
+      real(8) :: T_eV_val, t_days_val, kR_abs, kR_scat, kP_abs, rho_cell
+      integer :: mat_id
       logical :: idiag
       character*20 :: namef
       real(8) :: frac(niso)
@@ -171,16 +195,16 @@
       ndirect=0
       nscat=0
 
-!!!!! First define all source photons from Gamma-ray deposition
+      !!!!! First define all source photons from Gamma-ray deposition
       iphotons=0
       do nt=1,ntimes
       enddo
 
-!     first guess for temperature
+      !     first guess for temperature
       temp(:)=6.d4
       nelec(:)=0.0d0
 
-!!!!! Main loop
+      !!!!! Main loop
       do nt=1,ntimes
         call write_timestamp_uvoir(nt)
         fineiter=.false.
@@ -188,7 +212,7 @@
         write(fout,*  ) '----------------------------------------------'
         write(fout,600) nt,times(nt)/day,times(nt+1)/day
 
-!!      change atoms array according to Ni56 decay chain
+        !!      change atoms array according to Ni56 decay chain
         do i=1,nctot
            totatoms=atoms(ind_fe56,i)+atoms(ind_co56,i)+atoms(ind_ni56,i)
            call Ni56DecayChain(totatoms,teff(nt),atoms(ind_ni56,i),atoms(ind_co56,i),atoms(ind_fe56,i))
@@ -204,12 +228,50 @@
           temp_old(:)=temp(:)
 
           do i=1,nctot
-!     calculate ionization levels and cross sections
+          if (use_gray_opacity) then
+            ! Gray opacity mode: use pre-computed tables
+            T_eV_val = temp(i) / 11605.0d0  ! Convert K to eV
+            rho_cell = rhooft(rhov(i), teff(nt))
+            t_days_val = teff(nt) / day
+            mat_id = material_id(i)
+            
+            ! Get opacities from table
+            kR_abs = get_gray_opacity_rosseland_abs(mat_id, T_eV_val, rho_cell, t_days_val)
+            kR_scat = get_gray_opacity_rosseland_scat(mat_id, T_eV_val, rho_cell, t_days_val)
+            kP_abs = get_gray_opacity_planck_abs(mat_id, T_eV_val, rho_cell, t_days_val)
+            f_abs_gray(i) = get_gray_opacity_f_abs(mat_id, T_eV_val, rho_cell, t_days_val)
+            
+            ! Convert to opacity coefficients [1/cm]
+            alpha_abs_gray(i) = kR_abs * rho_cell
+            alpha_scat_gray(i) = kR_scat * rho_cell
+            kappa_planck_gray(i) = kP_abs
+            
+            ! Diagnostics for first iteration, first cell
+            if (niter.eq.1 .and. i.eq.1) then
+              write(fout,*) 'Gray opacity diagnostics (cell 1):'
+              write(fout,*) '  T_eV=', T_eV_val, ' rho=', rho_cell, ' t_days=', t_days_val
+              write(fout,*) '  kappa_R_abs=', kR_abs, ' kappa_R_scat=', kR_scat, ' kappa_P_abs=', kP_abs
+              write(fout,*) '  alpha_abs_gray=', alpha_abs_gray(i), ' alpha_scat_gray=', alpha_scat_gray(i)
+            endif
+            
+            ! Zero out frequency-dependent opacities
+            alpha_abs_exp(:,i) = 0.0d0
+            alpha_scat_exp(:,i) = 0.0d0
+            alpha_ff(:,i) = 0.0d0
+            alpha_scat(i) = 0.0d0  ! No Thomson in gray mode
+            
+            ! Calculate emissivity for gray mode (use Planck function at effective frequency)
+            call calc_planck_int(bp(:,i),fnorm,reslow,reshigh,spect_bins_uvoir(:),temp(i))
+            emissivity(:,i) = bp(:,i)
+            emissivity(:,i) = emissivity(:,i) / sum(emissivity(:,i))
+          else
+            ! Frequency-dependent opacity mode (original)
+            !     calculate ionization levels and cross sections
             call sahaionization(atoms(1:niso,i)*rhooft(rhov(i),teff(nt)),iso(1:niso)%z, &
             temp(i),nelec(i),nions(0:max_ion_levels,1:niso), &
              partition(0:max_ion_levels,1:niso),zavg(i))
 
-!     calculate opacities
+          !     calculate opacities
             call calc_planck_int(bp(:,i),fnorm,reslow,reshigh,spect_bins_uvoir(:),temp(i))
             call calc_freefree_abs(alpha_ff(:,i),temp(i),nelec(i),&
                   nions(0:max_ion_levels,1:niso),spect_bins_uvoir(:))
@@ -221,11 +283,12 @@
 
             emissivity(:,i)=(alpha_abs_exp(:,i)+alpha_ff(:,i))*bp(:,i)
             emissivity(:,i)=emissivity(:,i)/sum(emissivity(:,i))
+          endif
 
           enddo
 
-!     UVOIR photons emsision due to gamma absorption and positron deposition at this timestep
-!     emission is calculated every iterations due to changing in emissivity.
+          !     UVOIR photons emsision due to gamma absorption and positron deposition at this timestep
+          !     emission is calculated every iterations due to changing in emissivity.
           iphotons=sum(ncreate(0:nt-1))
           do k=1,nc3
             do j=1,nc2
@@ -287,6 +350,7 @@
           converge1=0.0d0
           do i=1,nctot
             vol=1.0d0/rhooft(rhov(i),teff(nt))
+            rho_actual = rhooft(rhov(i),teff(nt))
 
             do nb=1,nuvoir_bands
                emissivity(nb,i)=mean_emissivity(alpha_abs_exp(:,i)+alpha_ff(:,i),&
@@ -301,7 +365,19 @@
             trad(i)=radiation_temperature(jnudnu(i),1)
             tcolor(i)=color_temperature(jnudnu(i),nujnudnu(i))
             if (ntracks(i).gt.0) then
-              tplasma(i)=plasma_temperature(edot,alpha_abs_exp(:,i)+alpha_ff(:,i),spect_bins_uvoir(:),trad(i))
+              if (use_gray_opacity) then
+                ! Gray mode: use Planck mean opacity for temperature
+                ! T = (Edep / (4*sigma*κ_P*ρ))^(1/4)
+                sigma_sb = 5.670374419e-5  ! Stefan-Boltzmann constant [erg/(cm² s K⁴)]
+                alpha_planck = kappa_planck_gray(i) * rho_actual
+                if (alpha_planck > 1.d-30 .and. edot > 1.d-30) then
+                  tplasma(i) = (edot / (4.0d0 * sigma_sb * alpha_planck))**(0.25d0)
+                else
+                  tplasma(i) = trad(i)
+                endif
+              else
+                tplasma(i)=plasma_temperature(edot,alpha_abs_exp(:,i)+alpha_ff(:,i),spect_bins_uvoir(:),trad(i))
+              endif
             else
               tplasma(i)=mintemp
             endif
@@ -337,20 +413,20 @@
       namef='spectrum_uvoir'
       call diag_write_spectrum(namef,spect_uvoir,spect_bins_uvoir)
 
-401   format('***** Iteration # ',I3,' *****')
-501   format('#',I3,' <z>=',F5.2,'  Told=',F7.2,'  Tr=',F7.2,&
-             '  Tc=',F7.2,'  Tp=',F7.2,'  conv=',1pe9.2,&
-             '  Ntrk=',I8)
-502   format('kappa_abs=',1pe10.2,'  kappa_scat=',1pe10.2)
-503   format('Temperature converge/2sig=',1pe10.2,' weighted conv=',1pe10.2)
-600   format('time step number ',I3,' from t=',F6.2,&
-                                 ' days to t=',F6.2,' days')
-601   format('simulated ',I10,' packets out of total ',I10,' created ')
-602   format('leaked    ',I10,' packets out of total ',I10,' leaked  ')
-603   format('problem in',I10,' packets out of total ',I10,' problems')
+      401   format('***** Iteration # ',I3,' *****')
+      501   format('#',I3,' <z>=',F5.2,'  Told=',F7.2,'  Tr=',F7.2,&
+                  '  Tc=',F7.2,'  Tp=',F7.2,'  conv=',1pe9.2,&
+                  '  Ntrk=',I8)
+      502   format('kappa_abs=',1pe10.2,'  kappa_scat=',1pe10.2)
+      503   format('Temperature converge/2sig=',1pe10.2,' weighted conv=',1pe10.2)
+      600   format('time step number ',I3,' from t=',F6.2,&
+                                      ' days to t=',F6.2,' days')
+      601   format('simulated ',I10,' packets out of total ',I10,' created ')
+      602   format('leaked    ',I10,' packets out of total ',I10,' leaked  ')
+      603   format('problem in',I10,' packets out of total ',I10,' problems')
 
       return
-      end subroutine uvoir_transport
+    end subroutine uvoir_transport
 
       function new_uvoir(nt,i,j,k,Etot)
       integer , intent (in) :: nt,i,j,k
@@ -358,12 +434,20 @@
       type (epacket) :: new_uvoir
       real(8) :: z,v(3)
       integer :: ierr
+      real(8) :: nu_eff, T_cell
 
       call random_number(z)
       new_uvoir%t=times(nt)*z+times(nt+1)*(1.0d0-z)
       new_uvoir%r=random_location(i,j,k,teff(nt))
       new_uvoir%n=random_unit_vec1(3)
-      new_uvoir%lam=photon_emission_LTE(emissivity(:,ind(i,j,k)),spect_bins_uvoir(:))
+      if (use_gray_opacity) then
+        ! Gray mode: use effective frequency (Planck mean)
+        T_cell = temp(ind(i,j,k))
+        nu_eff = 3.83d0 * kboltz * T_cell / planck  ! Planck mean frequency
+        new_uvoir%lam = clight / nu_eff
+      else
+        new_uvoir%lam=photon_emission_LTE(emissivity(:,ind(i,j,k)),spect_bins_uvoir(:))
+      endif
       new_uvoir%hnu=lam2hnu(new_uvoir%lam)
       v=vofr(new_uvoir%r,teff(nt))
 
@@ -387,6 +471,7 @@
       real(8) :: q,f,cost,phi,depfac,cmfac
       real(8) :: ds,ds_time,ds_edge,ds_event
       real(8) :: alpha_a,alpha_s,alpha_tot
+      real(8) :: nu_eff_gray, T_cell_gray
 
       inmesh=.true.
       intime=.true.
@@ -421,14 +506,21 @@
 
         cmfac=(Etotm/p%Etot)
 
-        m=find_index1(lamm,spect_bins_uvoir(:),ierr)
+        if (use_gray_opacity) then
+          ! Gray opacity mode: frequency-independent
+          alpha_a = alpha_abs_gray(cell)
+          alpha_s = alpha_scat_gray(cell)
+        else
+          ! Frequency-dependent opacity mode
+          m=find_index1(lamm,spect_bins_uvoir(:),ierr)
 
-        if (ierr.gt.0) then
-        nout=1
+          if (ierr.gt.0) then
+          nout=1
+          endif
+
+          alpha_s=alpha_scat(cell)+alpha_scat_exp(m,cell)
+          alpha_a=alpha_ff(m,cell)+alpha_abs_exp(m,cell)
         endif
-
-        alpha_s=alpha_scat(cell)+alpha_scat_exp(m,cell)
-        alpha_a=alpha_ff(m,cell)+alpha_abs_exp(m,cell)
 
         alpha_tot=cmfac*(alpha_a+alpha_s)
 
@@ -469,7 +561,14 @@
           else                                     !! absorption and reemission`
             nm(:)=random_unit_vec1(3)
             Etotm=Etotm
-            lamm=photon_emission_LTE(emissivity(:,ind(i,j,k)),spect_bins_uvoir(:))
+            if (use_gray_opacity) then
+              ! Gray mode: use effective frequency
+              T_cell_gray = temp(cell)
+              nu_eff_gray = 3.83d0 * kboltz * T_cell_gray / planck
+              lamm = clight / nu_eff_gray
+            else
+              lamm=photon_emission_LTE(emissivity(:,ind(i,j,k)),spect_bins_uvoir(:))
+            endif
             hnum=lam2hnu(lamm)
           endif
           p%hnu=comoving2lab_transform_E(hnum,nm,vm,1)

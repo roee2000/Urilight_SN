@@ -22,6 +22,11 @@
       integer :: N_UvoirPellets=200000
       integer :: spect_type_uvoir=2
       integer :: nwavelengths=0
+!     gray opacity
+      logical :: use_gray_opacity=.false.
+      integer :: n_gray_materials=0
+      character(100), dimension(10) :: gray_opacity_table
+      integer, allocatable, save :: material_id(:)
 
 !     geometry
       integer , save :: dim=1

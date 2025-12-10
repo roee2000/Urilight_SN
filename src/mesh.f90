@@ -101,6 +101,7 @@
       allocate(atoms(niso,nctot))
       allocate(mass(nctot))
       allocate(rhov(nctot))
+      allocate(material_id(nctot))
 
       allocate(fracNi56(nc1,nc2,nc3))
       allocate(pellets(nc1,nc2,nc3))
@@ -114,6 +115,7 @@
       v1=0.0d0
       v2=0.0d0
       v3=0.0d0
+      material_id=1  ! Default to material 1 for all cells
 
       TotMass=0.0d0
       TotNi56=0.0d0
@@ -137,6 +139,10 @@
           rhov(ind(i,1,1))=1.0d0/vol
         enddo
       elseif (ejecta_type.eq.2 .or. ejecta_type.eq.4) then !! rho=exp(-v/vej)
+        ! Set material_id for all cells (default to material 1 for now)
+        do i=1,nc1
+          material_id(ind(i,1,1)) = 1
+        enddo
         do i=1,nc1
           if (mesh_type.eq.1) then 
 ! rho is defined as ro_0*t_0^3, which is equal to M(all)/(4*pi*v_e^3*F2(zmax)), and then m(z)=4*pi*rho*ve^3*(F2(z(i+1))-F2(z(i)))
@@ -175,16 +181,16 @@
         totmass=totmass+mass(i)
         if (ejecta_type.le.2) then
           fac=totmass/solar_mass
-! Lucy profile
-!         if (fac.le.0.5d0) then
-!           atoms(ind_ni56,i)=1.0d0
-!         elseif (totmass/solar_mass.le.0.75d0) then
-!           atoms(ind_ni56,i)=min(1.0d0,(max(0.0d0,(0.75d0-fac)/0.25d0)))
-!         else
-!           atoms(ind_ni56,i)=0.0d0
-!         endif
-!         atoms(ind_si28,i)=1.0d0-atoms(ind_ni56,i)
-! Woosley & Kasen
+          ! Lucy profile
+          !         if (fac.le.0.5d0) then
+          !           atoms(ind_ni56,i)=1.0d0
+          !         elseif (totmass/solar_mass.le.0.75d0) then
+          !           atoms(ind_ni56,i)=min(1.0d0,(max(0.0d0,(0.75d0-fac)/0.25d0)))
+          !         else
+          !           atoms(ind_ni56,i)=0.0d0
+          !         endif
+          !         atoms(ind_si28,i)=1.0d0-atoms(ind_ni56,i)
+          ! Woosley & Kasen
           if (fac.le.mfe0) then
             atoms(indiso(26,54),i)=1.0d0     ! iron
           elseif(fac.gt.mfe0 .and. fac.le.(mfe0+mni0)) then
