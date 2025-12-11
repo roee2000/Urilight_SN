@@ -231,17 +231,20 @@
           if (use_gray_opacity) then
             ! Gray opacity mode: use pre-computed tables
             T_eV_val = temp(i) / 11605.0d0  ! Convert K to eV
-            rho_cell = rhooft(rhov(i), teff(nt))
             t_days_val = teff(nt) / day
             mat_id = material_id(i)
             
-            ! Get opacities from table
+            ! Calculate density same way as later in code (line 353-354)
+            vol = 1.0d0 / rhooft(rhov(i), teff(nt))
+            rho_cell = mass(i) / vol
+            
+            ! Get opacities from table (these are mass opacities in cm^2/g)
             kR_abs = get_gray_opacity_rosseland_abs(mat_id, T_eV_val, rho_cell, t_days_val)
             kR_scat = get_gray_opacity_rosseland_scat(mat_id, T_eV_val, rho_cell, t_days_val)
             kP_abs = get_gray_opacity_planck_abs(mat_id, T_eV_val, rho_cell, t_days_val)
             f_abs_gray(i) = get_gray_opacity_f_abs(mat_id, T_eV_val, rho_cell, t_days_val)
             
-            ! Convert to opacity coefficients [1/cm]
+            ! Convert to opacity coefficients [1/cm] = kappa [cm^2/g] * rho [g/cm^3]
             alpha_abs_gray(i) = kR_abs * rho_cell
             alpha_scat_gray(i) = kR_scat * rho_cell
             kappa_planck_gray(i) = kP_abs
@@ -254,16 +257,6 @@
               write(fout,*) '  alpha_abs_gray=', alpha_abs_gray(i), ' alpha_scat_gray=', alpha_scat_gray(i)
             endif
             
-            ! Zero out frequency-dependent opacities
-            alpha_abs_exp(:,i) = 0.0d0
-            alpha_scat_exp(:,i) = 0.0d0
-            alpha_ff(:,i) = 0.0d0
-            alpha_scat(i) = 0.0d0  ! No Thomson in gray mode
-            
-            ! Calculate emissivity for gray mode (use Planck function at effective frequency)
-            call calc_planck_int(bp(:,i),fnorm,reslow,reshigh,spect_bins_uvoir(:),temp(i))
-            emissivity(:,i) = bp(:,i)
-            emissivity(:,i) = emissivity(:,i) / sum(emissivity(:,i))
           else
             ! Frequency-dependent opacity mode (original)
             !     calculate ionization levels and cross sections

@@ -29,7 +29,8 @@ module GrayOpacity
     implicit none
     character(*), intent(in) :: filename
     integer, intent(in) :: material_id
-    integer :: iunit, i, j, k, n, iostat, nlines
+    integer :: iunit, line_idx, j, n, iostat, nlines
+    integer :: i_temp, i_rho, i_time
     character(200) :: line
     real(8) :: T_val, rho_val, t_days_val, kR_abs_dummy, kR_scat_dummy, kP_abs, kR_tot, f_abs_val
     real(8), allocatable :: T_grid(:), rho_grid(:), time_grid(:)
@@ -75,7 +76,7 @@ module GrayOpacity
     nrho = 0
     nt_time = 0
 
-    do i = 1, nlines
+    do line_idx = 1, nlines
       ! Read all columns but only use: T, rho, t, kP_abs, kR_tot, f_abs
       ! Skip kR_abs and kR_scat (columns 4 and 5) - will derive from kR_tot and f_abs
       read(iunit, *, iostat=iostat) T_val, rho_val, t_days_val, kR_abs_dummy, kR_scat_dummy, kP_abs, kR_tot, f_abs_val
@@ -158,15 +159,18 @@ module GrayOpacity
       read(iunit, *, iostat=iostat) T_val, rho_val, t_days_val, kR_abs_dummy, kR_scat_dummy, kP_abs, kR_tot, f_abs_val
       if (iostat /= 0) exit
 
-      ! Find indices
-      i = find_index_in_array(T_val, gray_tables(material_id)%T_vals, gray_tables(material_id)%nT)
-      j = find_index_in_array(rho_val, gray_tables(material_id)%rho_vals, gray_tables(material_id)%nrho)
-      k = find_index_in_array(t_days_val, gray_tables(material_id)%time_vals, gray_tables(material_id)%nt_time)
+      ! Find grid indices - use exact match
+      i_temp = find_index_in_array(T_val, gray_tables(material_id)%T_vals, gray_tables(material_id)%nT)
+      i_rho = find_index_in_array(rho_val, gray_tables(material_id)%rho_vals, gray_tables(material_id)%nrho)
+      i_time = find_index_in_array(t_days_val, gray_tables(material_id)%time_vals, gray_tables(material_id)%nt_time)
 
-      if (i > 0 .and. j > 0 .and. k > 0) then
-        gray_tables(material_id)%kappa_P_abs(i,j,k) = kP_abs
-        gray_tables(material_id)%kappa_R_tot(i,j,k) = kR_tot
-        gray_tables(material_id)%f_abs(i,j,k) = f_abs_val
+      if (i_temp > 0 .and. i_rho > 0 .and. i_time > 0) then
+        gray_tables(material_id)%kappa_P_abs(i_temp, i_rho, i_time) = kP_abs
+        gray_tables(material_id)%kappa_R_tot(i_temp, i_rho, i_time) = kR_tot
+        gray_tables(material_id)%f_abs(i_temp, i_rho, i_time) = f_abs_val
+      else
+        write(fout,*) 'WARNING: Could not find grid indices for T=', T_val, ' rho=', rho_val, ' t=', t_days_val
+        write(fout,*) '  i_temp=', i_temp, ' i_rho=', i_rho, ' i_time=', i_time
       endif
     enddo
 
@@ -343,8 +347,11 @@ module GrayOpacity
     integer, intent(in) :: n
     real(8), intent(in) :: x, arr(n)
     integer :: idx, i
+    real(8) :: tol
+    ! Use relative tolerance for better matching
+    tol = max(abs(x) * 1e-8, 1e-20)
     do i = 1, n
-      if (abs(x - arr(i)) < 1e-10) then
+      if (abs(x - arr(i)) < tol) then
         idx = i
         return
       endif
