@@ -213,10 +213,12 @@
         write(fout,600) nt,times(nt)/day,times(nt+1)/day
 
         !!      change atoms array according to Ni56 decay chain
-        do i=1,nctot
-           totatoms=atoms(ind_fe56,i)+atoms(ind_co56,i)+atoms(ind_ni56,i)
-           call Ni56DecayChain(totatoms,teff(nt),atoms(ind_ni56,i),atoms(ind_co56,i),atoms(ind_fe56,i))
-        enddo
+        if (.not.freeze_composition) then
+          do i=1,nctot
+            totatoms=atoms(ind_fe56,i)+atoms(ind_co56,i)+atoms(ind_ni56,i)
+            call Ni56DecayChain(totatoms,teff(nt),atoms(ind_ni56,i),atoms(ind_co56,i),atoms(ind_fe56,i))
+          enddo
+        endif
 
         do while (.not.fineiter)
           niter=niter+1

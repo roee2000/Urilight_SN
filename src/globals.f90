@@ -17,11 +17,18 @@
       logical :: onlyrodr=.false.
       integer :: N_GammaPellets=500000
       integer :: spect_type_gamma=1
+      logical :: use_external_heating=.false.
+      logical :: heating_per_mass=.true.
+      real(8) :: heating_rate0=0.0d0
+      real(8) :: heating_t0_days=1.0d0
+      real(8) :: heating_alpha=1.3d0
 !     uvoir
       logical :: isuvoir=.true.
       integer :: N_UvoirPellets=200000
       integer :: spect_type_uvoir=2
       integer :: nwavelengths=0
+!     composition
+      logical :: freeze_composition=.false.
 !     gray opacity
       logical :: use_gray_opacity=.false.
       integer :: n_gray_materials=0

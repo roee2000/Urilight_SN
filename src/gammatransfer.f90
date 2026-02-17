@@ -6,6 +6,7 @@
 
       Module GammaTransfer
       use globals
+      use physical_constants
       use arrays
       use general_functions
       use transport_general_functions
@@ -29,13 +30,19 @@
       real(8) :: Ni56Edep,Co56Edep
       real(8) :: xmin,xmax,deltax,mni
       integer :: nbins
-      namelist /gamma/ N_GammaPellets,spect_type_gamma,xmin,xmax,deltax,nbins,ispe,iscompton,ispp
+      namelist /gamma/ N_GammaPellets,spect_type_gamma,xmin,xmax,deltax,nbins,ispe,iscompton,ispp, &
+                       use_external_heating,heating_per_mass,heating_rate0,heating_t0_days,heating_alpha
 
 !!    default
       spect_type_gamma=1 !! bins by energy (in mev)
       xmin=0.0d0
       xmax=4.0d0
       nbins=100
+      use_external_heating=.false.
+      heating_per_mass=.true.
+      heating_rate0=1.0d10
+      heating_t0_days=1.0d0
+      heating_alpha=1.3d0
      
       open(unit=5,file=data_file)
       read(5,nml=gamma,iostat=ino)
@@ -51,10 +58,18 @@
       ecr_gamma=0.0d0
       spect_gamma=0.0d0
       spect_bins_gamma=0.0d0
+      if (heating_t0_days.le.0.0d0) heating_t0_days=1.0d0
       
       do i=1,nbins+1
         spect_bins_gamma(i)=xmin+(xmax-xmin)/dble(nbins)*dble(i-1)
       enddo
+
+      if (use_external_heating) then
+        call fill_external_heating()
+        write(fout,1004) heating_rate0,heating_alpha
+1004    format('External heating enabled: edot= ',1pe12.4,'*(t/day)^-',F6.3,' erg s^-1 g^-1')
+        return
+      endif
 
       totpel=0
       do k=1,nc3
@@ -80,6 +95,35 @@
       return
       end subroutine init_gamma
 
+      subroutine fill_external_heating()
+      integer :: nt,i
+      real(8) :: t_days,edot,totmass,tfac
+
+      edep_pos=0.0d0
+      ecr_gamma=0.0d0
+      totmass=sum(mass(:))
+      if (totmass.le.0.0d0) return
+
+      do nt=1,ntimes
+        t_days=teff(nt)/day
+        if (t_days.le.0.0d0) cycle
+        tfac=(t_days/heating_t0_days)**(-heating_alpha)
+        edot=heating_rate0*tfac
+        if (heating_per_mass) then
+          do i=1,nctot
+            Edep_gamma(nt,i)=edot*mass(i)*dt(nt)
+          enddo
+        else
+          do i=1,nctot
+            Edep_gamma(nt,i)=edot*dt(nt)*mass(i)/totmass
+          enddo
+        endif
+        ecr_gamma(nt)=sum(Edep_gamma(nt,:))
+      enddo
+
+      return
+      end subroutine fill_external_heating
+
       subroutine gamma_transport
       integer :: i,j,k,nt,np,ip,jp,kp,NiCo,ierr
       logical :: inmesh,intime,isabs,isprob
@@ -89,6 +133,10 @@
 
 !     call calc_rodr
       if (onlyrodr) stop
+      if (use_external_heating) then
+        write(fout,*) 'External heating enabled: skipping gamma transport.'
+        return
+      endif
 
       call write_timestamp_gamma()
       nprob=0

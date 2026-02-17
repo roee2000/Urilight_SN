@@ -39,7 +39,7 @@
       use arrays , only : times , indiso
       implicit none
       integer :: i,ino
-      namelist /simulation/tinit,tfinal,ntimes,isuvoir
+      namelist /simulation/tinit,tfinal,ntimes,isuvoir,freeze_composition
 
       fout=66
       data_file='data_file'
