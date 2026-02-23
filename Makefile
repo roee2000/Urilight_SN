@@ -1,6 +1,7 @@
 # ---- Compiler settings ---------
 COMPILER=gfortran
-OPTIMIZATION=-g -pg -fcheck=bounds -fcheck=mem -cpp -ffree-line-length-none -fno-range-check -fopenmp
+OPTIMIZATION=-g -fcheck=bounds -fcheck=mem -cpp -ffree-line-length-none -fno-range-check -fopenmp 
+# -pg: add time profiling
 LDFLAGS=-isysroot /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk -fopenmp
 
 # Build directory
@@ -78,9 +79,7 @@ clean:
 	rm -rf $(BUILD_DIR)
 
 rclean:
-	@outdir=$$(awk -F"'" '/output_dir/{print $$2}' data_file | tail -1); \
-	if [ -z "$$outdir" ]; then outdir=output; fi; \
-	rm -fr fort.* run.e* run.o* sbatch_out "$$outdir"
+	rm -fr output
 
 run:
 	$(MAKE) rclean;

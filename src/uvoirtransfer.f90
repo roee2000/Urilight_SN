@@ -201,14 +201,12 @@
 
       !!!!! First define all source photons from Gamma-ray deposition
       iphotons=0
-      do nt=1,ntimes
-      enddo
 
       !     first guess for temperature
       temp(:)=6.d4
       nelec(:)=0.0d0
 
-      !!!!! Main loop
+      !!!!! Main loop (kept serial: no OpenMP here so 1-core and N-core give identical results)
       do nt=1,ntimes
         call write_timestamp_uvoir(nt)
         fineiter=.false.
@@ -218,12 +216,10 @@
 
         !!      change atoms array according to Ni56 decay chain
         if (.not.freeze_composition) then
-!$omp parallel do private(totatoms)
           do i=1,nctot
             totatoms=atoms(ind_fe56,i)+atoms(ind_co56,i)+atoms(ind_ni56,i)
             call Ni56DecayChain(totatoms,teff(nt),atoms(ind_ni56,i),atoms(ind_co56,i),atoms(ind_fe56,i))
           enddo
-!$omp end parallel do
         endif
 
         do while (.not.fineiter)
@@ -235,7 +231,7 @@
           nujnudnu(:)=0.0d0
           temp_old(:)=temp(:)
 
-!$omp parallel do private(nions,partition,fnorm,reslow,reshigh)
+          !$omp parallel do private(nions,partition,fnorm,reslow,reshigh,T_eV_val,t_days_val,mat_id,vol,rho_cell,kR_abs,kR_scat,kP_abs)
           do i=1,nctot
             if (use_gray_opacity) then
               ! Gray opacity mode: use pre-computed tables
@@ -260,12 +256,12 @@
               
               ! Diagnostics for first iteration, first cell
               if (niter.eq.1 .and. i.eq.1) then
-!$omp critical
+                !$omp critical
                 write(fout,*) 'Gray opacity diagnostics (cell 1):'
                 write(fout,*) '  T_eV=', T_eV_val, ' rho=', rho_cell, ' t_days=', t_days_val
                 write(fout,*) '  kappa_R_abs=', kR_abs, ' kappa_R_scat=', kR_scat, ' kappa_P_abs=', kP_abs
                 write(fout,*) '  alpha_abs_gray=', alpha_abs_gray(i), ' alpha_scat_gray=', alpha_scat_gray(i)
-!$omp end critical
+                !$omp end critical
               endif
               
             else
@@ -290,7 +286,7 @@
             endif
 
           enddo
-!$omp end parallel do
+          !$omp end parallel do
 
           !     UVOIR photons emsision due to gamma absorption and positron deposition at this timestep
           !     emission is calculated every iterations due to changing in emissivity.
@@ -314,21 +310,20 @@
           nprob(nt)=0
           if (niter.eq.2) fineiter=.true.
 
-!$omp parallel do schedule(dynamic) private(p_old,inmesh,intime,isabs,isprob,idiag)
+          ! Photon loop must stay serial: intrinsic random_number has global state;
+          ! parallelizing here causes RNG races and wrong/oscillatory results (Z vs v).
           do np=1,sum(ncreate(0:nt))
 
             if (photon(np)%t.lt.times(nt+1) .and. photon(np)%active) then
 
               p_old=photon(np)
 
-!$omp atomic
               nsim=nsim+1
               idiag=.false.
               call track_uvoir(photon(np),nt,inmesh,intime,isabs,isprob,idiag)
 
               if (fineiter) then
                 if (isprob) then
-!$omp atomic
                   nprob(nt)=nprob(nt)+1
                   photon(np)%active=.false.
                 endif
@@ -338,16 +333,12 @@
                   call diag_integrate_uvoir_bands(photon(np),spect_bins_uvoir(:),2)
                   call write_to_spectrum(photon(np),spect_uvoir,spect_bins_uvoir,spect_type_uvoir)
 
-!$omp atomic
                   nout=nout+1
-!$omp atomic
                   nleak(nt)=nleak(nt)+1
                   photon(np)%active=.false.
                   if (photon(np)%direct) then
-!$omp atomic
                     ndirect=ndirect+1
                   else
-!$omp atomic
                     nscat=nscat+1
                   endif
                 endif
@@ -358,19 +349,15 @@
             endif
 
           enddo
-!$omp end parallel do
           edot_max=0.0d0
-!$omp parallel do reduction(max:edot_max)
           do i=1,nctot
             vol=1.0d0/rhooft(rhov(i),teff(nt))
             edot=edep(i)+(edep_gamma(nt,i)+edep_pos(nt,i))/vol/dt(nt)/4.0d0/pi
             edot_max=max(edot_max,edot)
           enddo
-!$omp end parallel do
 
           converge=-1.0d0
           converge1=0.0d0
-!$omp parallel do reduction(max:converge) reduction(+:converge1)
           do i=1,nctot
             vol=1.0d0/rhooft(rhov(i),teff(nt))
             rho_actual = rhooft(rhov(i),teff(nt))
@@ -411,14 +398,11 @@
               converge=max(converge,conv/(2.0d0/sqrt(ntracks(i)+eps)))
             endif
             converge1=converge1+conv*ntracks(i)
-!$omp critical
             write(fout,501) i,zavg(i),temp_old(i)/1000.0d0,temp(i)/1000.0d0,&
               tcolor(i)/1000.0d0,tplasma(i)/1000.0d0,&
               conv/(2.0d0/sqrt(ntracks(i)+eps)),ntracks(i),niter_tp,conv_tp
             write(fout,502) kappa_abs(i),kappa_scat(i)
-!$omp end critical
           enddo
-!$omp end parallel do
           converge1=converge1/dble(sum(ntracks(:)))
           write(fout,503) converge,converge1
 
@@ -512,7 +496,6 @@
 
       call findijk(p%r,teff(nt),i,j,k)
 
-!$omp atomic
       ntracks(ind(i,j,k))=ntracks(ind(i,j,k))+1
 
       depfac=1.0d0/4.0d0/pi/dt(nt)
@@ -566,13 +549,9 @@
 !       calc estimators for radiation energy density (Erad) and energey deposition (Edep)
 !       Note: estimators are calculated in comoving frame. As ds and p%Etot are defined
 !       in lab frame, an appropriate transformation is made by multypling by cmfac
-!$omp atomic
         jnudnu(cell)=jnudnu(cell)+depfac*rhom*p%Etot*ds*cmfac**2.0d0
-!$omp atomic
         nujnudnu(cell)=nujnudnu(cell)+depfac*rhom*(p%hnu/planck)*p%Etot*ds*cmfac**3.0d0
-!$omp atomic
         edep(cell)=edep(cell)+depfac*rhom*alpha_a*p%Etot*ds*cmfac**2.0d0
-!$omp atomic
         esca(cell)=esca(cell)+depfac*rhom*alpha_s*p%Etot*ds*cmfac**2.0d0
 
         if (ds.eq.ds_time) then
@@ -583,10 +562,7 @@
           k=k1
           if (i.gt.nc1 .or. j.gt.nc2 .or. k.gt.nc3) inmesh=.false.
           if (i.lt.1   .or. j.lt.1   .or. k.lt.1)   inmesh=.false.
-          if (inmesh) then
-!$omp atomic
-            ntracks(ind(i,j,k))=ntracks(ind(i,j,k))+1
-          endif
+          if (inmesh) ntracks(ind(i,j,k))=ntracks(ind(i,j,k))+1
         elseif (ds_event.eq.ds) then
           vm=vofr(p%r,teff(nt))
           hnum=comoving2lab_transform_E(p%hnu,p%n,vm,2)
