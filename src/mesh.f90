@@ -10,6 +10,7 @@
       use RandomNumbers
       use general_functions
       use atomic_physics
+      use Logger
       implicit none
 
       real(8) :: TotMass,TotNi56
@@ -30,9 +31,16 @@
       real(8) :: tmpmass,tmptotmass,tmpiso(50)
       real(8) :: Mni0,Mfe0,Mime0,ekin,dmix
       real(8) :: Mej,Vej,Rej,Vejmax,fac,vejfacmax,ni_fac
+      real(8) :: xsum
       integer :: nmix,i1,i2
-      integer :: ejecta_type,mesh_type
+      integer :: ejecta_type,mesh_type,imat,iso_i
       logical :: ismix
+      character(256) :: log_msg
+      logical :: use_uniform_composition
+      integer, parameter :: max_uniform_materials=10
+      integer :: n_uniform_materials
+      integer :: uniform_Z(max_uniform_materials), uniform_A(max_uniform_materials)
+      real(8) :: uniform_X(max_uniform_materials)
       character(50) :: filename
       real(8) :: isomass(max_isotops)
 !     1 - constant density
@@ -42,7 +50,8 @@
       integer :: ino
 
       namelist /mesh/ dim,nc1,nc2,nc3,ejecta_type,Mni0,Mfe0,Mime0,&
-                      ekin,vej,vejmax,mesh_type,ismix,dmix,nmix,vejfacmax,ni_fac
+                      ekin,vej,vejmax,mesh_type,ismix,dmix,nmix,vejfacmax,ni_fac,&
+                      use_uniform_composition,n_uniform_materials,uniform_Z,uniform_A,uniform_X
 
 !!    first define all isotops
       call add_full_isotop_list
@@ -62,6 +71,11 @@
       ismix=.false.
       dmix=0.02d0
       nmix=3
+      use_uniform_composition=.false.
+      n_uniform_materials=0
+      uniform_Z=0
+      uniform_A=0
+      uniform_X=0.0d0
  
       open(unit=5,file=data_file)
       read(5,nml=mesh,iostat=ino)
@@ -176,10 +190,41 @@
       if (ejecta_type.lt.10) then
 !     set isotop distribution
       totmass=0.0d0
+      if (use_uniform_composition) then
+        if (n_uniform_materials.lt.1 .or. n_uniform_materials.gt.max_uniform_materials) then
+          write(fout,*) 'ERROR: n_uniform_materials out of range [1,',max_uniform_materials,']'
+          stop
+        endif
+        xsum=sum(uniform_X(1:n_uniform_materials))
+        if (xsum.le.0.0d0) then
+          write(fout,*) 'ERROR: sum(uniform_X) must be > 0'
+          stop
+        endif
+        do imat=1,n_uniform_materials
+          if (uniform_Z(imat).lt.1 .or. uniform_Z(imat).gt.max_atoms) then
+            write(fout,*) 'ERROR: uniform_Z out of range at entry ',imat
+            stop
+          endif
+          if (uniform_A(imat).lt.1 .or. uniform_A(imat).gt.99) then
+            write(fout,*) 'ERROR: uniform_A out of range at entry ',imat
+            stop
+          endif
+          iso_i=indiso(uniform_Z(imat),uniform_A(imat))
+          if (iso_i.lt.1) then
+            write(fout,*) 'ERROR: invalid isotope Z,A = ',uniform_Z(imat),uniform_A(imat)
+            stop
+          endif
+        enddo
+      endif
       do n=1,nc1
         i=ind(n,1,1)
         totmass=totmass+mass(i)
-        if (ejecta_type.le.2) then
+        if (use_uniform_composition) then
+          do imat=1,n_uniform_materials
+            iso_i=indiso(uniform_Z(imat),uniform_A(imat))
+            atoms(iso_i,i)=uniform_X(imat)/xsum
+          enddo
+        elseif (ejecta_type.le.2) then
           fac=totmass/solar_mass
           ! Lucy profile
           !         if (fac.le.0.5d0) then
@@ -315,27 +360,27 @@
 
       totmass=sum(isomass(:))
       TotNi56=sum(atoms(indiso(28,56),:))*iso(indiso(28,56))%A
-      write(fout,1001) totmass
+      write(log_msg,'("Total ejecta mass = ",1pe14.6," solar mass")') totmass
+      call log_info(trim(log_msg))
 
       call reduce_isotop_list(isomass(:))
 
       do i=1,niso
         z=iso(i)%z
         a=nint(iso(i)%a*avogadro)
-        write(fout,1002) indiso(z,a),z,a,sum(atoms(i,:)*iso(i)%a)/solar_mass
+        write(log_msg,'("Index=",I4," Total isotop (Z,A)=",2I4," mass = ",1pe14.6," solar mass")') &
+             indiso(z,a),z,a,sum(atoms(i,:)*iso(i)%a)/solar_mass
+        call log_info(trim(log_msg))
       enddo
-1001  format('Total ejecta mass = ',1pe14.6,' solar mass')
-1002  format('Index=',I4,' Total isotop (Z,A)=',2I4,' mass = ',&
-              1pe14.6,' solar mass')
       ind_fe56=indiso(26,56)
       ind_co56=indiso(27,56)
       ind_ni56=indiso(28,56)
-      write(fout,1005) ind_fe56,ind_co56,ind_ni56
-1005  format('radioactive isotop indexs: Fe56=',I4,' Co56=',I4,' Ni56=',I4)
+      write(log_msg,'("radioactive isotop indexs: Fe56=",I4," Co56=",I4," Ni56=",I4)') ind_fe56,ind_co56,ind_ni56
+      call log_info(trim(log_msg))
 
 
       if (dim.eq.1) then
-        open(unit=50,file='ejecta_profile',POSITION='APPEND')
+        open(unit=50,file=trim(output_dir)//'/ejecta_profile',POSITION='APPEND')
         write(50,1003) v1(:)
         write(50,1003) 0.0d0,mass(1:nc1)
         do n=1,niso

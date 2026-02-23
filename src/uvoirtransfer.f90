@@ -43,6 +43,9 @@
       deltal=-1.0d0
       nwavelengths=500
       deltav=-1.0d0
+      use_gray_opacity=.false.
+      n_gray_materials=0
+      gray_opacity_table=''
 
       open(unit=5,file=data_file)
       read(5,nml=uvoir,iostat=ino)
@@ -179,9 +182,10 @@
       type (epacket) :: p_old
       real(8) :: nions(0:max_ion_levels,niso)
       real(8) :: partition(0:max_ion_levels,niso)
-      integer :: niter,ndep,nout,nsim,ndirect,nscat
+      integer :: niter,ndep,nout,nsim,ndirect,nscat,niter_tp
+      real(8) :: conv_tp
       real(8) :: ne,Etotm,vm(3),conv,converge,converge1,totatoms,&
-                 vol,fnorm,edot,reslow,reshigh,kappa,ein,rho_actual
+                 vol,fnorm,edot,edot_max,reslow,reshigh,kappa,ein,rho_actual
       real(8) :: alpha_planck, sigma_sb
       real(8) :: T_eV_val, t_days_val, kR_abs, kR_scat, kP_abs, rho_cell
       integer :: mat_id
@@ -214,10 +218,12 @@
 
         !!      change atoms array according to Ni56 decay chain
         if (.not.freeze_composition) then
+!$omp parallel do private(totatoms)
           do i=1,nctot
             totatoms=atoms(ind_fe56,i)+atoms(ind_co56,i)+atoms(ind_ni56,i)
             call Ni56DecayChain(totatoms,teff(nt),atoms(ind_ni56,i),atoms(ind_co56,i),atoms(ind_fe56,i))
           enddo
+!$omp end parallel do
         endif
 
         do while (.not.fineiter)
@@ -229,58 +235,62 @@
           nujnudnu(:)=0.0d0
           temp_old(:)=temp(:)
 
+!$omp parallel do private(nions,partition,fnorm,reslow,reshigh)
           do i=1,nctot
-          if (use_gray_opacity) then
-            ! Gray opacity mode: use pre-computed tables
-            T_eV_val = temp(i) / 11605.0d0  ! Convert K to eV
-            t_days_val = teff(nt) / day
-            mat_id = material_id(i)
-            
-            ! Calculate density same way as later in code (line 353-354)
-            vol = 1.0d0 / rhooft(rhov(i), teff(nt))
-            rho_cell = mass(i) / vol
-            
-            ! Get opacities from table (these are mass opacities in cm^2/g)
-            kR_abs = get_gray_opacity_rosseland_abs(mat_id, T_eV_val, rho_cell, t_days_val)
-            kR_scat = get_gray_opacity_rosseland_scat(mat_id, T_eV_val, rho_cell, t_days_val)
-            kP_abs = get_gray_opacity_planck_abs(mat_id, T_eV_val, rho_cell, t_days_val)
-            f_abs_gray(i) = get_gray_opacity_f_abs(mat_id, T_eV_val, rho_cell, t_days_val)
-            
-            ! Convert to opacity coefficients [1/cm] = kappa [cm^2/g] * rho [g/cm^3]
-            alpha_abs_gray(i) = kR_abs * rho_cell
-            alpha_scat_gray(i) = kR_scat * rho_cell
-            kappa_planck_gray(i) = kP_abs
-            
-            ! Diagnostics for first iteration, first cell
-            if (niter.eq.1 .and. i.eq.1) then
-              write(fout,*) 'Gray opacity diagnostics (cell 1):'
-              write(fout,*) '  T_eV=', T_eV_val, ' rho=', rho_cell, ' t_days=', t_days_val
-              write(fout,*) '  kappa_R_abs=', kR_abs, ' kappa_R_scat=', kR_scat, ' kappa_P_abs=', kP_abs
-              write(fout,*) '  alpha_abs_gray=', alpha_abs_gray(i), ' alpha_scat_gray=', alpha_scat_gray(i)
+            if (use_gray_opacity) then
+              ! Gray opacity mode: use pre-computed tables
+              T_eV_val = temp(i) / 11605.0d0  ! Convert K to eV
+              t_days_val = teff(nt) / day
+              mat_id = material_id(i)
+              
+              ! Calculate density same way as later in code (line 353-354)
+              vol = 1.0d0 / rhooft(rhov(i), teff(nt))
+              rho_cell = mass(i) / vol
+              
+              ! Get opacities from table (these are mass opacities in cm^2/g)
+              kR_abs = get_gray_opacity_rosseland_abs(mat_id, T_eV_val, rho_cell, t_days_val)
+              kR_scat = get_gray_opacity_rosseland_scat(mat_id, T_eV_val, rho_cell, t_days_val)
+              kP_abs = get_gray_opacity_planck_abs(mat_id, T_eV_val, rho_cell, t_days_val)
+              f_abs_gray(i) = get_gray_opacity_f_abs(mat_id, T_eV_val, rho_cell, t_days_val)
+              
+              ! Convert to opacity coefficients [1/cm] = kappa [cm^2/g] * rho [g/cm^3]
+              alpha_abs_gray(i) = kR_abs * rho_cell
+              alpha_scat_gray(i) = kR_scat * rho_cell
+              kappa_planck_gray(i) = kP_abs
+              
+              ! Diagnostics for first iteration, first cell
+              if (niter.eq.1 .and. i.eq.1) then
+!$omp critical
+                write(fout,*) 'Gray opacity diagnostics (cell 1):'
+                write(fout,*) '  T_eV=', T_eV_val, ' rho=', rho_cell, ' t_days=', t_days_val
+                write(fout,*) '  kappa_R_abs=', kR_abs, ' kappa_R_scat=', kR_scat, ' kappa_P_abs=', kP_abs
+                write(fout,*) '  alpha_abs_gray=', alpha_abs_gray(i), ' alpha_scat_gray=', alpha_scat_gray(i)
+!$omp end critical
+              endif
+              
+            else
+              ! Frequency-dependent opacity mode (original)
+              !     calculate ionization levels and cross sections
+              call sahaionization(atoms(1:niso,i)*rhooft(rhov(i),teff(nt)),iso(1:niso)%z, &
+              temp(i),nelec(i),nions(0:max_ion_levels,1:niso), &
+              partition(0:max_ion_levels,1:niso),zavg(i))
+
+            !     calculate opacities
+              call calc_planck_int(bp(:,i),fnorm,reslow,reshigh,spect_bins_uvoir(:),temp(i))
+              call calc_freefree_abs(alpha_ff(:,i),temp(i),nelec(i),&
+                    nions(0:max_ion_levels,1:niso),spect_bins_uvoir(:))
+              call expansion_opacity_LTE(alpha_abs_exp(:,i),alpha_scat_exp(:,i),teff(nt),temp(i),&
+                  nions(0:max_ion_levels,1:niso),partition(0:max_ion_levels,1:niso),spect_bins_uvoir(:))
+
+              alpha_scat(i)=sigma_thomson*nelec(i)
+
+
+              emissivity(:,i)=(alpha_abs_exp(:,i)+alpha_ff(:,i))*bp(:,i)
+              emissivity(:,i)=emissivity(:,i)/sum(emissivity(:,i))
             endif
-            
-          else
-            ! Frequency-dependent opacity mode (original)
-            !     calculate ionization levels and cross sections
-            call sahaionization(atoms(1:niso,i)*rhooft(rhov(i),teff(nt)),iso(1:niso)%z, &
-            temp(i),nelec(i),nions(0:max_ion_levels,1:niso), &
-             partition(0:max_ion_levels,1:niso),zavg(i))
-
-          !     calculate opacities
-            call calc_planck_int(bp(:,i),fnorm,reslow,reshigh,spect_bins_uvoir(:),temp(i))
-            call calc_freefree_abs(alpha_ff(:,i),temp(i),nelec(i),&
-                  nions(0:max_ion_levels,1:niso),spect_bins_uvoir(:))
-            call expansion_opacity_LTE(alpha_abs_exp(:,i),alpha_scat_exp(:,i),teff(nt),temp(i),&
-                 nions(0:max_ion_levels,1:niso),partition(0:max_ion_levels,1:niso),spect_bins_uvoir(:))
-
-            alpha_scat(i)=sigma_thomson*nelec(i)
-
-
-            emissivity(:,i)=(alpha_abs_exp(:,i)+alpha_ff(:,i))*bp(:,i)
-            emissivity(:,i)=emissivity(:,i)/sum(emissivity(:,i))
-          endif
 
           enddo
+!$omp end parallel do
 
           !     UVOIR photons emsision due to gamma absorption and positron deposition at this timestep
           !     emission is calculated every iterations due to changing in emissivity.
@@ -304,18 +314,21 @@
           nprob(nt)=0
           if (niter.eq.2) fineiter=.true.
 
+!$omp parallel do schedule(dynamic) private(p_old,inmesh,intime,isabs,isprob,idiag)
           do np=1,sum(ncreate(0:nt))
 
             if (photon(np)%t.lt.times(nt+1) .and. photon(np)%active) then
 
               p_old=photon(np)
 
+!$omp atomic
               nsim=nsim+1
               idiag=.false.
               call track_uvoir(photon(np),nt,inmesh,intime,isabs,isprob,idiag)
 
               if (fineiter) then
                 if (isprob) then
+!$omp atomic
                   nprob(nt)=nprob(nt)+1
                   photon(np)%active=.false.
                 endif
@@ -325,12 +338,16 @@
                   call diag_integrate_uvoir_bands(photon(np),spect_bins_uvoir(:),2)
                   call write_to_spectrum(photon(np),spect_uvoir,spect_bins_uvoir,spect_type_uvoir)
 
+!$omp atomic
                   nout=nout+1
+!$omp atomic
                   nleak(nt)=nleak(nt)+1
                   photon(np)%active=.false.
                   if (photon(np)%direct) then
+!$omp atomic
                     ndirect=ndirect+1
                   else
+!$omp atomic
                     nscat=nscat+1
                   endif
                 endif
@@ -341,8 +358,19 @@
             endif
 
           enddo
+!$omp end parallel do
+          edot_max=0.0d0
+!$omp parallel do reduction(max:edot_max)
+          do i=1,nctot
+            vol=1.0d0/rhooft(rhov(i),teff(nt))
+            edot=edep(i)+(edep_gamma(nt,i)+edep_pos(nt,i))/vol/dt(nt)/4.0d0/pi
+            edot_max=max(edot_max,edot)
+          enddo
+!$omp end parallel do
+
           converge=-1.0d0
           converge1=0.0d0
+!$omp parallel do reduction(max:converge) reduction(+:converge1)
           do i=1,nctot
             vol=1.0d0/rhooft(rhov(i),teff(nt))
             rho_actual = rhooft(rhov(i),teff(nt))
@@ -353,41 +381,44 @@
             enddo
 
             tplasma(i)=-1.0d0
-            edot=max(edep(i)+(edep_gamma(nt,i)+edep_pos(nt,i))/vol/dt(nt)/4.0d0/pi,1.d-10)
+            edot=edep(i)+(edep_gamma(nt,i)+edep_pos(nt,i))/vol/dt(nt)/4.0d0/pi
             kappa_abs(i)=edep(i)/(jnudnu(i)+1.d-32)/(mass(i)/vol)
             kappa_scat(i)=esca(i)/(jnudnu(i)+1.d-32)/(mass(i)/vol)
 
             trad(i)=radiation_temperature(jnudnu(i),1)
             tcolor(i)=color_temperature(jnudnu(i),nujnudnu(i))
-            if (ntracks(i).gt.0) then
+            niter_tp=-1
+            conv_tp=-1.0d0
+            if (edot.gt.1.d-8*edot_max) then
               if (use_gray_opacity) then
-                ! Gray mode: use Planck mean opacity for temperature
-                ! T = (Edep / (4*sigma*κ_P*ρ))^(1/4)
-                sigma_sb = 5.670374419e-5  ! Stefan-Boltzmann constant [erg/(cm² s K⁴)]
+                sigma_sb = 5.670374419e-5
                 alpha_planck = kappa_planck_gray(i) * rho_actual
-                if (alpha_planck > 1.d-30 .and. edot > 1.d-30) then
+                if (alpha_planck > 1.d-30) then
                   tplasma(i) = (edot / (4.0d0 * sigma_sb * alpha_planck))**(0.25d0)
                 else
                   tplasma(i) = trad(i)
                 endif
               else
-                tplasma(i)=plasma_temperature(edot,alpha_abs_exp(:,i)+alpha_ff(:,i),spect_bins_uvoir(:),trad(i))
+                call plasma_temperature(edot,alpha_abs_exp(:,i)+alpha_ff(:,i),spect_bins_uvoir(:),trad(i),tplasma(i),niter_tp,conv_tp)
               endif
             else
               tplasma(i)=mintemp
             endif
 
-            temp(i)=max(tplasma(i),mintemp)
+            temp(i)=tplasma(i)
             conv=abs(temp(i)-temp_old(i))/(temp_old(i)+epstemp)
             if (ntracks(i).gt.100) then
               converge=max(converge,conv/(2.0d0/sqrt(ntracks(i)+eps)))
             endif
             converge1=converge1+conv*ntracks(i)
+!$omp critical
             write(fout,501) i,zavg(i),temp_old(i)/1000.0d0,temp(i)/1000.0d0,&
               tcolor(i)/1000.0d0,tplasma(i)/1000.0d0,&
-              conv/(2.0d0/sqrt(ntracks(i)+eps)),ntracks(i)
+              conv/(2.0d0/sqrt(ntracks(i)+eps)),ntracks(i),niter_tp,conv_tp
             write(fout,502) kappa_abs(i),kappa_scat(i)
+!$omp end critical
           enddo
+!$omp end parallel do
           converge1=converge1/dble(sum(ntracks(:)))
           write(fout,503) converge,converge1
 
@@ -398,6 +429,9 @@
         write(fout,603) nprob(nt),sum(nprob(1:nt))
 
         call diag_write_profiles(nt)
+        call diag_write_totals(nt)
+        namef='spectrum_uvoir'
+        call diag_write_spectrum(namef,spect_uvoir,spect_bins_uvoir,nt)
         !     Write opacity data for specified cell at each time step
         if (cell_opac_print) then
           call write_cell_opacity_timestep(nt)
@@ -411,7 +445,7 @@
       401   format('***** Iteration # ',I3,' *****')
       501   format('#',I3,' <z>=',F5.2,'  Told=',F7.2,'  Tr=',F7.2,&
                   '  Tc=',F7.2,'  Tp=',F7.2,'  conv=',1pe9.2,&
-                  '  Ntrk=',I8)
+                  '  Ntrk=',I8,'  Tp_nit=',I4,'  Tp_conv=',1pe9.2)
       502   format('kappa_abs=',1pe10.2,'  kappa_scat=',1pe10.2)
       503   format('Temperature converge/2sig=',1pe10.2,' weighted conv=',1pe10.2)
       600   format('time step number ',I3,' from t=',F6.2,&
@@ -478,6 +512,7 @@
 
       call findijk(p%r,teff(nt),i,j,k)
 
+!$omp atomic
       ntracks(ind(i,j,k))=ntracks(ind(i,j,k))+1
 
       depfac=1.0d0/4.0d0/pi/dt(nt)
@@ -531,9 +566,13 @@
 !       calc estimators for radiation energy density (Erad) and energey deposition (Edep)
 !       Note: estimators are calculated in comoving frame. As ds and p%Etot are defined
 !       in lab frame, an appropriate transformation is made by multypling by cmfac
+!$omp atomic
         jnudnu(cell)=jnudnu(cell)+depfac*rhom*p%Etot*ds*cmfac**2.0d0
+!$omp atomic
         nujnudnu(cell)=nujnudnu(cell)+depfac*rhom*(p%hnu/planck)*p%Etot*ds*cmfac**3.0d0
+!$omp atomic
         edep(cell)=edep(cell)+depfac*rhom*alpha_a*p%Etot*ds*cmfac**2.0d0
+!$omp atomic
         esca(cell)=esca(cell)+depfac*rhom*alpha_s*p%Etot*ds*cmfac**2.0d0
 
         if (ds.eq.ds_time) then
@@ -544,7 +583,10 @@
           k=k1
           if (i.gt.nc1 .or. j.gt.nc2 .or. k.gt.nc3) inmesh=.false.
           if (i.lt.1   .or. j.lt.1   .or. k.lt.1)   inmesh=.false.
-          if (inmesh)  ntracks(ind(i,j,k))=ntracks(ind(i,j,k))+1
+          if (inmesh) then
+!$omp atomic
+            ntracks(ind(i,j,k))=ntracks(ind(i,j,k))+1
+          endif
         elseif (ds_event.eq.ds) then
           vm=vofr(p%r,teff(nt))
           hnum=comoving2lab_transform_E(p%hnu,p%n,vm,2)
@@ -730,12 +772,12 @@
       integer, intent(in) :: time_step
       integer :: k, file_unit, cell_index, i
       real(8) :: lambda, alpha_abs_total, alpha_scat_total, density, time_days
-      character(50) :: filename
+      character(256) :: filename
       logical :: file_exists
       ! Get target cell index
       cell_index = cell_opac_print_i
       ! Create filename
-      write(filename, '(A,I0,A)') 'opacity_cell_', cell_index, '.dat'
+      write(filename, '(A,I0,A)') trim(output_dir)//'/opacity_cell_', cell_index, '.dat'
       
       ! Check if file exists to determine if we need to write header
       inquire(file=filename, exist=file_exists)

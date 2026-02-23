@@ -13,7 +13,15 @@
       use GammaTransfer
       use UvoirTransfer
       use diagnostics
+      use Logger
+      use globals, only: fout
       implicit none
+      integer :: count_start, count_end, count_rate, count_max
+      real(8) :: elapsed_sec
+      character(8) :: date
+      character(10) :: time
+
+      call system_clock(count_start, count_rate, count_max)
 
       call init_simulation
       call init_random_numbers
@@ -32,6 +40,22 @@
 
       call diag_write_totals
 
+      call system_clock(count_end, count_rate, count_max)
+      if (count_rate > 0) then
+        elapsed_sec = dble(count_end - count_start) / dble(count_rate)
+      else
+        elapsed_sec = 0.0d0
+      endif
+      call date_and_time(date, time)
+      write(fout,'(A)') ''
+      write(fout,'(A)') '=============================================================================='
+      write(fout,'(A)') ' Run complete'
+      write(fout,'(A)') '=============================================================================='
+      write(fout,'(A,I0.2,A,I0.2,A,I0.2)') ' Total runtime = ', int(elapsed_sec)/3600, ':', mod(int(elapsed_sec),3600)/60, ':', mod(int(elapsed_sec),60)
+      write(fout,'(A,F12.2,A)') '             (', elapsed_sec, ' s)'
+      write(fout,'(A,A4,A,A2,A,A2,A,A2,A,A2,A,A2)') ' Ended: ', date(1:4), '-', date(5:6), '-', date(7:8), ' ', time(1:2), ':', time(3:4), ':', time(5:6)
+      write(fout,'(A)') '=============================================================================='
+
       contains
 
       subroutine init_simulation
@@ -39,23 +63,30 @@
       use arrays , only : times , indiso
       implicit none
       integer :: i,ino
-      namelist /simulation/tinit,tfinal,ntimes,isuvoir,freeze_composition
+      integer :: ios
+      namelist /simulation/tinit,tfinal,ntimes,isuvoir,freeze_composition,output_dir
 
       fout=66
       data_file='data_file'
-      open (unit=fout,file='out',position='append')
-
-      call write_timestamp('Simulation started')
-      write(fout,*) 'Initializing simualtion'
-      write(fout,*) '-----------------------'
-
+      output_dir='output'
       tinit=2.0d0
       tfinal=50.0d0
       ntimes=100
-
       open(unit=5,file=data_file)
       read(5,nml=simulation,iostat=ino)
       close(5)
+
+      call execute_command_line('mkdir -p '//trim(output_dir), wait=.true., exitstat=ios)
+      if (ios /= 0) then
+        print *, 'Error creating output directory'
+        stop
+      endif
+      open (unit=fout,file=trim(output_dir)//'/out',position='append')
+
+      call log_info('Simulation started')
+      call log_info('Initializing simulation')
+      call log_info('-----------------------')
+
       write(fout,nml=simulation)
 
       tinit=tinit*day
@@ -76,18 +107,5 @@
 
       return
       end subroutine init_simulation
-
-      subroutine write_timestamp(message)
-      use globals
-      implicit none
-      character(*), intent(in) :: message
-      character(8) :: date
-      character(10) :: time
-      
-      call date_and_time(date, time)
-      write(fout,'(A,": ",A4,"-",A2,"-",A2," ",A2,":",A2,":",A2)') &
-           trim(message), date(1:4), date(5:6), date(7:8), &
-           time(1:2), time(3:4), time(5:6)
-      end subroutine write_timestamp
 
       end program UriLight

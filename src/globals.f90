@@ -9,6 +9,7 @@
 !     simulation data
       integer :: fout
       character(30) :: data_file
+      character(256) :: output_dir='output'
       integer :: ntimes
       real(8) :: tinit , tfinal
 

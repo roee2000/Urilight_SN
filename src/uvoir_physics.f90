@@ -29,7 +29,7 @@
       fnorm=2.0d0*planck/clight**2.0d0*(kbt/planck)**4.0d0
       fx=planck*clight/kbt
 
-      nb=100
+      nb=1
 
       do i=1,size(bp)
         lam1=wbins(i)
@@ -222,18 +222,21 @@
       return
       end function color_temperature
 
-      real(8) function plasma_temperature(Edep,alpha_abs,wbins,tguess)
+      subroutine plasma_temperature(Edep,alpha_abs,wbins,tguess,t_out,niter_out,conv_out)
       real(8) , intent(in) :: Edep,alpha_abs(:),wbins(:),tguess
+      real(8) , intent(out) :: t_out,conv_out
+      integer , intent(out) :: niter_out
       real(8) :: bpx(size(alpha_abs))
       integer :: nb,niter
-      real(8) :: fnorm,f1,f2,told,tnew,conv,reslow,reshigh,int_alpha_bp
+      real(8) :: fnorm,f1,f2,told,tnew,tprev,conv,reslow,reshigh,int_alpha_bp
 
       nb=size(alpha_abs)
 
       tnew=max(tguess,mintemp)
+      tprev=-1.0d0
       conv=1.0d0
       niter=0
-      do while (conv.gt.1.d-4 .and. niter.lt.100)
+      do while (conv.gt.1.d-3 .and. niter.lt.100)
         told=tnew
 
         call calc_planck_int(bpx(:),fnorm,reslow,reshigh,wbins(:),told)
@@ -246,8 +249,15 @@
 
         tnew=planck/kboltz*(f1/f2)**(1.0d0/4.0d0)
 
-        tnew=0.5d0*tnew+0.5d0*told
+        tnew=0.25d0*tnew+0.75d0*told
         tnew=max(tnew,mintemp)
+
+        if (tprev.gt.0.0d0 .and. abs(tnew-tprev)/(tprev+50.0d0).lt.1.d-2) then
+          tnew=0.5d0*(tnew+told)
+          tprev=-1.0d0
+        else
+          tprev=told
+        endif
 
         conv=abs(tnew-told)/(told+50.0d0)
 
@@ -261,10 +271,12 @@
       if (niter.eq.100) write(66,*) &
           'plasma temperature iter problem , conv=',conv
 
-      plasma_temperature=tnew
+      niter_out=niter
+      conv_out=conv
+      t_out=tnew
 
       return
-      end function plasma_temperature
+      end subroutine plasma_temperature
 
       real(8) function bradley_clark_pin(x)
       real(8) , intent(in) :: x

@@ -15,6 +15,7 @@
       use Mesh
       use diagnostics
       use Gamma_Physics
+      use Logger
       implicit none
 
       logical , save :: ispe=.true.
@@ -30,6 +31,7 @@
       real(8) :: Ni56Edep,Co56Edep
       real(8) :: xmin,xmax,deltax,mni
       integer :: nbins
+      character(256) :: log_msg
       namelist /gamma/ N_GammaPellets,spect_type_gamma,xmin,xmax,deltax,nbins,ispe,iscompton,ispp, &
                        use_external_heating,heating_per_mass,heating_rate0,heating_t0_days,heating_alpha
 
@@ -66,8 +68,9 @@
 
       if (use_external_heating) then
         call fill_external_heating()
-        write(fout,1004) heating_rate0,heating_alpha
-1004    format('External heating enabled: edot= ',1pe12.4,'*(t/day)^-',F6.3,' erg s^-1 g^-1')
+        write(log_msg,'("External heating enabled: edot=",1pe12.4,"*(t/day)^-",F6.3," erg s^-1 g^-1")') &
+             heating_rate0,heating_alpha
+        call log_info(trim(log_msg))
         return
       endif
 
@@ -85,12 +88,12 @@
       call RadioactiveEnergyDepo(sum(atoms(ind_ni56,:)),0.0d0,tfinal,Ni56Edep,Co56Edep)
       EpelletGamma=(Ni56Edep+Co56Edep)*mev/totpel
        
-      write(fout,1001) (Ni56Edep+Co56Edep)*mev
-      write(fout,1002) Co56Edep*PosEfrac*mev
-      write(fout,1003) totpel
-1001  format('Gamma energy source (not including positrons) is ',1pe14.6,' erg')
-1002  format('Positron energy deposited for uvoir transfer is ',1pe14.6,' erg')
-1003  format('Total number of gamma pellets is ',I10)
+      write(log_msg,'("Gamma energy source (not including positrons) is ",1pe14.6," erg")') (Ni56Edep+Co56Edep)*mev
+      call log_info(trim(log_msg))
+      write(log_msg,'("Positron energy deposited for uvoir transfer is ",1pe14.6," erg")') Co56Edep*PosEfrac*mev
+      call log_info(trim(log_msg))
+      write(log_msg,'("Total number of gamma pellets is ",I10)') totpel
+      call log_info(trim(log_msg))
 
       return
       end subroutine init_gamma
@@ -134,7 +137,7 @@
 !     call calc_rodr
       if (onlyrodr) stop
       if (use_external_heating) then
-        write(fout,*) 'External heating enabled: skipping gamma transport.'
+        call log_info('External heating enabled: skipping gamma transport.')
         return
       endif
 
@@ -446,14 +449,9 @@
       end subroutine calc_rodr
 
       subroutine write_timestamp_gamma()
-      use globals
+      use Logger
       implicit none
-      character(8) :: date
-      character(10) :: time
-      
-      call date_and_time(date, time)
-      write(fout,'("Gamma transport started: ",A4,"-",A2,"-",A2," ",A2,":",A2,":",A2)') &
-           date(1:4), date(5:6), date(7:8), time(1:2), time(3:4), time(5:6)
+      call log_info('Gamma transport started')
       end subroutine write_timestamp_gamma
 
       end Module GammaTransfer

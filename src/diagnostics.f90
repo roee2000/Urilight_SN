@@ -6,7 +6,8 @@
        Module diagnostics
        use globals
        use arrays , only : epacket , times , dt , Edep_gamma , &
-                           edep_pos , temp , nelec , emissivity
+                          edep_pos , temp , nelec , emissivity, teff
+      use physical_constants , only : day
        use general_functions
        use mesh
        implicit none
@@ -103,6 +104,7 @@
       
        delta=(bins(i1+1)-bins(i1))*(times(i2+1)-times(i2))
 
+!$omp atomic
        spect(i1,i2)=spect(i1,i2)+p%Etot/delta
 
 !      if (p%direct) then
@@ -133,6 +135,7 @@
        if (ierr.gt.0) return
       
        delta=(times(i1+1)-times(i1))
+!$omp atomic
        vec(i1)=vec(i1)+p%Etot/delta
 
        return
@@ -161,23 +164,29 @@
 
        do nb=1,size(uvoir_band_names)
          phi=spectroscopic_filter(p%lam,uvoir_band_names(nb),phin)
+!$omp atomic
          uvoir_f(i1,nb)=uvoir_f(i1,nb)+p%Etot/delta*phi
        enddo
       
        return
        end subroutine diag_integrate_uvoir_bands
 
-      subroutine diag_write_spectrum(namef,spect,bins)
+      subroutine diag_write_spectrum(namef,spect,bins,upto_nt)
       real(8) , intent(in) :: spect(:,:),bins(:)
       character*20 , intent(in) :: namef
-      integer :: n,nbins
+      integer , intent(in) , optional :: upto_nt
+      integer :: n,nbins,nlast
 
       nbins=size(bins)-1
+      nlast=ntimes
+      if (present(upto_nt)) nlast=max(1,min(upto_nt,ntimes))
       
-      open (unit=101,file=namef,position='append')
-      write(101,1000) -1.0d0,times(1:ntimes+1)
+      open (unit=101,file=trim(output_dir)//'/'//trim(namef),status='replace')
+      write(101,1000) -1.0d0,times(1:nlast+1)
+      call flush(101)
       do n=1,nbins
-        write(101,1000) bins(n),bins(n+1),spect(n,1:ntimes)
+        write(101,1000) bins(n),bins(n+1),spect(n,1:nlast)
+        call flush(101)
       enddo
       close (101)
 
@@ -185,14 +194,18 @@
       return
       end subroutine diag_write_spectrum
 
-      subroutine diag_write_totals
-      integer :: i
+      subroutine diag_write_totals(upto_nt)
+      integer , intent(in) , optional :: upto_nt
+      integer :: i,nlast
       real(8) :: edep,epos,delta,gcr
 
-      open (unit=101,file='totals',position='append')
-      open (unit=102,file='luminocity',position='append')
-      open (unit=103,file='magnitude',position='append')
-      do i=1,Ntimes
+      nlast=ntimes
+      if (present(upto_nt)) nlast=max(1,min(upto_nt,ntimes))
+
+      open (unit=101,file=trim(output_dir)//'/totals',status='replace')
+      open (unit=102,file=trim(output_dir)//'/luminocity',status='replace')
+      open (unit=103,file=trim(output_dir)//'/magnitude',status='replace')
+      do i=1,nlast
         delta=(times(i+1)-times(i))
         edep=sum(edep_gamma(i,:))/delta
         epos=sum(edep_pos(i,:))/delta
@@ -201,6 +214,9 @@
         write(102,1000) times(i),times(i+1),Bolout(i),uvoir_f(i,:)
         write(103,1000) times(i),times(i+1),bolometric_magnitude(Bolout(i)),&
             magnitude(uvoir_f(i,:),uvoir_band_names(:))
+        call flush(101)
+        call flush(102)
+        call flush(103)
       enddo
       close(101)
       close(102)
@@ -219,7 +235,7 @@
       logical :: dir_exists
 
       ! Check if profile directory exists
-      dirname = 'profile'
+      dirname = trim(output_dir)//'/profile'
       inquire(file=trim(dirname)//'/.', exist=dir_exists)
       
       ! If directory doesn't exist, create it
@@ -253,6 +269,7 @@
         return
       endif
 
+      write(50,1000) teff(nt)/day
       write(50,1000) (edep_gamma(nt,1:nc1)+edep_pos(nt,1:nc1))/dt(nt)
       write(50,1000) nelec(1:nc1)
       write(50,1000) zavg(1:nc1)
