@@ -1,6 +1,6 @@
 # ---- Compiler settings ---------
 COMPILER=gfortran
-OPTIMIZATION=-g -fcheck=bounds -fcheck=mem -cpp -ffree-line-length-none -fno-range-check -fopenmp 
+OPTIMIZATION=-g -fcheck=bounds -fcheck=mem -cpp -ffree-line-length-none -fno-range-check -fopenmp
 # -pg: add time profiling
 LDFLAGS=-isysroot /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk -fopenmp
 

@@ -18,8 +18,6 @@
       implicit none
       integer :: count_start, count_end, count_rate, count_max
       real(8) :: elapsed_sec
-      character(8) :: date
-      character(10) :: time
 
       call system_clock(count_start, count_rate, count_max)
 
@@ -38,23 +36,9 @@
         call uvoir_transport
       endif
 
-      call diag_write_totals
-
       call system_clock(count_end, count_rate, count_max)
-      if (count_rate > 0) then
-        elapsed_sec = dble(count_end - count_start) / dble(count_rate)
-      else
-        elapsed_sec = 0.0d0
-      endif
-      call date_and_time(date, time)
-      write(fout,'(A)') ''
-      write(fout,'(A)') '=============================================================================='
-      write(fout,'(A)') ' Run complete'
-      write(fout,'(A)') '=============================================================================='
-      write(fout,'(A,I0.2,A,I0.2,A,I0.2)') ' Total runtime = ', int(elapsed_sec)/3600, ':', mod(int(elapsed_sec),3600)/60, ':', mod(int(elapsed_sec),60)
-      write(fout,'(A,F12.2,A)') '             (', elapsed_sec, ' s)'
-      write(fout,'(A,A4,A,A2,A,A2,A,A2,A,A2,A,A2)') ' Ended: ', date(1:4), '-', date(5:6), '-', date(7:8), ' ', time(1:2), ':', time(3:4), ':', time(5:6)
-      write(fout,'(A)') '=============================================================================='
+      elapsed_sec = merge(dble(count_end - count_start) / dble(count_rate), 0.0d0, count_rate > 0)
+      call diag_write_totals(elapsed_sec=elapsed_sec)
 
       contains
 

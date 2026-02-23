@@ -162,7 +162,6 @@
 
        do nb=1,size(uvoir_band_names)
          phi=spectroscopic_filter(p%lam,uvoir_band_names(nb),phin)
-!$omp atomic
          uvoir_f(i1,nb)=uvoir_f(i1,nb)+p%Etot/delta*phi
        enddo
       
@@ -192,10 +191,13 @@
       return
       end subroutine diag_write_spectrum
 
-      subroutine diag_write_totals(upto_nt)
+      subroutine diag_write_totals(upto_nt,elapsed_sec)
       integer , intent(in) , optional :: upto_nt
+      real(8) , intent(in) , optional :: elapsed_sec
       integer :: i,nlast
       real(8) :: edep,epos,delta,gcr
+      character(8) :: date
+      character(10) :: time
 
       nlast=ntimes
       if (present(upto_nt)) nlast=max(1,min(upto_nt,ntimes))
@@ -221,6 +223,18 @@
       close(103)
 
 1000  format(1000(1pe14.6))
+
+      if (present(elapsed_sec)) then
+        call date_and_time(date, time)
+        write(fout,'(A)') ''
+        write(fout,'(A)') '=============================================================================='
+        write(fout,'(A)') ' Run complete'
+        write(fout,'(A)') '=============================================================================='
+        write(fout,'(A,I0.2,A,I0.2,A,I0.2)') ' Total runtime = ', int(elapsed_sec)/3600, ':', mod(int(elapsed_sec),3600)/60, ':', mod(int(elapsed_sec),60)
+        write(fout,'(A,F12.2,A)') '             (', elapsed_sec, ' s)'
+        write(fout,'(A,A4,A,A2,A,A2,A,A2,A,A2,A,A2)') ' Ended: ', date(1:4), '-', date(5:6), '-', date(7:8), ' ', time(1:2), ':', time(3:4), ':', time(5:6)
+        write(fout,'(A)') '=============================================================================='
+      endif
 
       return
       end subroutine diag_write_totals

@@ -310,8 +310,9 @@
           nprob(nt)=0
           if (niter.eq.2) fineiter=.true.
 
-          ! Photon loop must stay serial: intrinsic random_number has global state;
-          ! parallelizing here causes RNG races and wrong/oscillatory results (Z vs v).
+          !$omp parallel do schedule(dynamic) &
+          !$omp   private(p_old,inmesh,intime,isabs,isprob,idiag) &
+          !$omp   reduction(+:nsim,nout,ndirect,nscat)
           do np=1,sum(ncreate(0:nt))
 
             if (photon(np)%t.lt.times(nt+1) .and. photon(np)%active) then
@@ -324,16 +325,20 @@
 
               if (fineiter) then
                 if (isprob) then
+                  !$omp atomic
                   nprob(nt)=nprob(nt)+1
                   photon(np)%active=.false.
                 endif
 
                 if (.not.inmesh) then
+                  !$omp critical(leak_diag)
                   call integrate_bolometric(photon(np),bolout,2)
                   call diag_integrate_uvoir_bands(photon(np),spect_bins_uvoir(:),2)
                   call write_to_spectrum(photon(np),spect_uvoir,spect_bins_uvoir,spect_type_uvoir)
+                  !$omp end critical(leak_diag)
 
                   nout=nout+1
+                  !$omp atomic
                   nleak(nt)=nleak(nt)+1
                   photon(np)%active=.false.
                   if (photon(np)%direct) then
@@ -349,6 +354,7 @@
             endif
 
           enddo
+          !$omp end parallel do
           edot_max=0.0d0
           do i=1,nctot
             vol=1.0d0/rhooft(rhov(i),teff(nt))
@@ -496,6 +502,7 @@
 
       call findijk(p%r,teff(nt),i,j,k)
 
+      !$omp atomic
       ntracks(ind(i,j,k))=ntracks(ind(i,j,k))+1
 
       depfac=1.0d0/4.0d0/pi/dt(nt)
@@ -549,9 +556,13 @@
 !       calc estimators for radiation energy density (Erad) and energey deposition (Edep)
 !       Note: estimators are calculated in comoving frame. As ds and p%Etot are defined
 !       in lab frame, an appropriate transformation is made by multypling by cmfac
+        !$omp atomic
         jnudnu(cell)=jnudnu(cell)+depfac*rhom*p%Etot*ds*cmfac**2.0d0
+        !$omp atomic
         nujnudnu(cell)=nujnudnu(cell)+depfac*rhom*(p%hnu/planck)*p%Etot*ds*cmfac**3.0d0
+        !$omp atomic
         edep(cell)=edep(cell)+depfac*rhom*alpha_a*p%Etot*ds*cmfac**2.0d0
+        !$omp atomic
         esca(cell)=esca(cell)+depfac*rhom*alpha_s*p%Etot*ds*cmfac**2.0d0
 
         if (ds.eq.ds_time) then
@@ -562,7 +573,10 @@
           k=k1
           if (i.gt.nc1 .or. j.gt.nc2 .or. k.gt.nc3) inmesh=.false.
           if (i.lt.1   .or. j.lt.1   .or. k.lt.1)   inmesh=.false.
-          if (inmesh) ntracks(ind(i,j,k))=ntracks(ind(i,j,k))+1
+          if (inmesh) then
+            !$omp atomic
+            ntracks(ind(i,j,k))=ntracks(ind(i,j,k))+1
+          endif
         elseif (ds_event.eq.ds) then
           vm=vofr(p%r,teff(nt))
           hnum=comoving2lab_transform_E(p%hnu,p%n,vm,2)
