@@ -54,7 +54,7 @@
       real(8) , parameter :: epstemp=100.0d0
 
       integer , save :: niso
-      integer , parameter :: max_isotops=350
+      integer , parameter :: max_isotops=600
       integer , save :: ind_ni56,ind_co56,ind_fe56,ind_fe54,&
                         ind_si28,ind_s32,ind_ar36,ind_ca40,&
                         ind_c12,ind_o16

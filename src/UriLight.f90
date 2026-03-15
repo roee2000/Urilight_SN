@@ -25,6 +25,7 @@
       call init_random_numbers
       call init_nuclear_data
       call init_mesh
+      if (isuvoir) call init_uvoir_spect_bins
       call init_atomic_data
       call init_gamma
       call init_diagnostics

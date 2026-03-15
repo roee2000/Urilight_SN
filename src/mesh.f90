@@ -205,7 +205,7 @@
             write(fout,*) 'ERROR: uniform_Z out of range at entry ',imat
             stop
           endif
-          if (uniform_A(imat).lt.1 .or. uniform_A(imat).gt.99) then
+          if (uniform_A(imat).lt.1 .or. uniform_A(imat).gt.200) then
             write(fout,*) 'ERROR: uniform_A out of range at entry ',imat
             stop
           endif

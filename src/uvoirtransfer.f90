@@ -25,14 +25,67 @@
       integer , allocatable , save :: Ncreate(:) , Nleak(:) , Nprob(:)
       real(8) , allocatable , save :: alpha_abs_gray(:), alpha_scat_gray(:), kappa_planck_gray(:), f_abs_gray(:)
 
+      ! Single-point / diagnostic overrides (read from /uvoir/ namelist)
+      real(8) , save :: override_T_eV = -1.0d0   ! if >0: force temperature (eV) for Saha/opacity
+      real(8) , save :: override_rho  = -1.0d0   ! if >0: force density (g/cm^3) for Saha number densities
+      logical , save :: print_saha_solution = .false.
+
       contains
+
+    subroutine init_uvoir_spect_bins
+      integer :: ino,bin_type
+      real(8) :: lmin,lmax,deltal,deltav
+      namelist /uvoir/ N_UvoirPellets,lmin,lmax,deltal,nwavelengths,deltav,bin_type,&
+                      use_gray_opacity,n_gray_materials,gray_opacity_table,&
+                      override_T_eV,override_rho,print_saha_solution
+      spect_type_uvoir=2
+      bin_type=1; lmin=10.0d0; lmax=30000.0d0; deltal=-1.0d0; nwavelengths=500; deltav=-1.0d0
+      open(unit=5,file=data_file); read(5,nml=uvoir,iostat=ino); close(5)
+      if (ino /= 0) write(fout,*) 'WARNING: Cannot read uvoir namelist, iostat=', ino
+      call build_spect_bins_uvoir(lmin,lmax,deltal,deltav,bin_type)
+    end subroutine init_uvoir_spect_bins
+
+    subroutine build_spect_bins_uvoir(lmin,lmax,deltal,deltav,bin_type)
+      integer, intent(in) :: bin_type
+      real(8), intent(inout) :: lmin,lmax,deltal,deltav
+      integer :: i
+      real(8) :: qv
+      if (bin_type.eq.1) then
+        if (deltal.gt.0.0d0) then
+          nwavelengths=nint((lmax-lmin)/deltal)
+          lmax=lmin+deltal*nwavelengths
+        else
+          qv=(lmax/lmin)**(1.0d0/dble(nwavelengths))
+        endif
+        allocate(spect_bins_uvoir(nwavelengths+1))
+        do i=1,nwavelengths+1
+          spect_bins_uvoir(i)=lmin+(lmax-lmin)/dble(nwavelengths)*dble(i-1)
+        enddo
+      elseif(bin_type.eq.2) then
+        if (deltav.gt.0.0d0) then
+          qv=1.0d0+deltav/clight
+          nwavelengths=nint(1.0d0+log(lmax/lmin)/log(qv))-1
+          lmax=lmin*qv**dble(nwavelengths)
+        else
+          qv=(lmax/lmin)**(1.0d0/dble(nwavelengths))
+        endif
+        allocate(spect_bins_uvoir(nwavelengths+1))
+        do i=1,nwavelengths+1
+          spect_bins_uvoir(i)=lmin*qv**dble(i-1)
+        enddo
+      endif
+      spect_bins_uvoir(:)=spect_bins_uvoir(:)*angstrom
+      allocate(dspect_bins_uvoir(nwavelengths))
+      dspect_bins_uvoir(:)=spect_bins_uvoir(2:nwavelengths+1)-spect_bins_uvoir(1:nwavelengths)
+    end subroutine build_spect_bins_uvoir
 
     subroutine init_uvoir
       integer :: i,j,k,nt,totpel,ino,dn,bin_type
       real(8) :: lmin,lmax,deltal,deltav,qv
       real(8) :: ein
       namelist /uvoir/ N_UvoirPellets,lmin,lmax,deltal,nwavelengths,deltav,bin_type,&
-                      use_gray_opacity,n_gray_materials,gray_opacity_table
+                      use_gray_opacity,n_gray_materials,gray_opacity_table,&
+                      override_T_eV,override_rho,print_saha_solution
 
       !!    default
       spect_type_uvoir=2 !! bins by lambda 
@@ -46,6 +99,9 @@
       use_gray_opacity=.false.
       n_gray_materials=0
       gray_opacity_table=''
+      override_T_eV = -1.0d0
+      override_rho  = -1.0d0
+      print_saha_solution = .false.
 
       open(unit=5,file=data_file)
       read(5,nml=uvoir,iostat=ino)
@@ -66,39 +122,9 @@
         endif
       endif
 
-      if (bin_type.eq.1) then
-        if (deltal.gt.0.0d0) then
-          nwavelengths=nint(dble(lmax-lmin)/dble(deltal))
-          lmax=lmin+deltal*nwavelengths
-        else
-          qv=(lmax/lmin)**(1.0d0/dble(nwavelengths))
-        endif
-        allocate (spect_bins_uvoir(nwavelengths+1))
-        do i=1,nwavelengths+1
-          spect_bins_uvoir(i)=lmin+(lmax-lmin)/dble(nwavelengths)*dble(i-1)
-        enddo
-        write(fout,*) 'Using constant wavelength binning'
-      elseif(bin_type.eq.2) then
-        if (deltav.gt.0.0d0) then
-          qv=1.0d0+deltav/clight
-          nwavelengths=nint(1.0d0+log(lmax/lmin)/log(qv))-1
-          lmax=lmin*qv**dble(nwavelengths)
-        else
-          qv=(lmax/lmin)**(1.0d0/dble(nwavelengths))
-        endif
-        allocate (spect_bins_uvoir(nwavelengths+1))
-        do i=1,nwavelengths+1
-          spect_bins_uvoir(i)=lmin*qv**dble(i-1)
-        enddo
-        write(fout,*) 'Using constant velocity wavelength binning'
-        write(fout,1000) lmin,lmin*qv**nwavelengths,nwavelengths
-      1000    format ('Lmin=',1pe10.2,' Lmax=',1pe10.2,' Nwavelengths=',I6)
-      endif
+      if (.not. allocated(spect_bins_uvoir)) call build_spect_bins_uvoir(lmin,lmax,deltal,deltav,bin_type)
 
       write(fout,nml=uvoir)
-      spect_bins_uvoir(:)=spect_bins_uvoir(:)*angstrom
-      allocate(dspect_bins_uvoir(nwavelengths))
-      dspect_bins_uvoir(:)=spect_bins_uvoir(2:nwavelengths+1)-spect_bins_uvoir(1:nwavelengths)
 
       allocate (jnudnu(nctot),nujnudnu(nctot),edep(nctot),esca(nctot))
       allocate (temp(nctot),temp_old(nctot))
@@ -152,6 +178,17 @@
              ' ergs , Positron deposition=',1pe10.2,' ergs')
       write(fout,*) 'UVOIR Source=',Esource
 
+      ! In single-point setups with external heating, Esource may be zero.
+      ! We still want to run opacity/Saha diagnostics without creating pellets.
+      if (Esource.le.0.0d0) then
+        ncreate=0
+        totpel=1
+        EpelletUvoir=0.0d0
+        allocate(photon(totpel))
+        nphotons=totpel
+        return
+      endif
+
       do nt=1,ntimes
         do k=1,nc3
           do j=1,nc2
@@ -176,7 +213,7 @@
     end subroutine init_uvoir
 
     subroutine uvoir_transport
-      integer :: i,j,k,nt,np,npellets,ip,jp,kp,ierr,iphotons,nb
+      integer :: i,j,k,nt,np,npellets,ip,jp,kp,ierr,iphotons,nb,ii,ion_stage
       logical :: fineiter
       logical :: inmesh,intime,isabs,isprob
       type (epacket) :: p_old
@@ -187,11 +224,12 @@
       real(8) :: ne,Etotm,vm(3),conv,converge,converge1,totatoms,&
                  vol,fnorm,edot,edot_max,reslow,reshigh,kappa,ein,rho_actual
       real(8) :: alpha_planck, sigma_sb
-      real(8) :: T_eV_val, t_days_val, kR_abs, kR_scat, kP_abs, rho_cell
+      real(8) :: T_eV_val, t_days_val, kR_abs, kR_scat, kP_abs, rho_cell, vol_inv
       integer :: mat_id
       logical :: idiag
       character*20 :: namef
       real(8) :: frac(niso)
+      real(8) :: sum_ions, fion(0:max_ion_levels)
 
       nprob=0
       nout=0
@@ -231,7 +269,7 @@
           nujnudnu(:)=0.0d0
           temp_old(:)=temp(:)
 
-          !$omp parallel do private(nions,partition,fnorm,reslow,reshigh,T_eV_val,t_days_val,mat_id,vol,rho_cell,kR_abs,kR_scat,kP_abs)
+          !$omp parallel do private(nions,partition,fnorm,reslow,reshigh,T_eV_val,t_days_val,mat_id,vol,kR_abs,kR_scat,kP_abs,vol_inv)
           do i=1,nctot
             if (use_gray_opacity) then
               ! Gray opacity mode: use pre-computed tables
@@ -267,16 +305,45 @@
             else
               ! Frequency-dependent opacity mode (original)
               !     calculate ionization levels and cross sections
-              call sahaionization(atoms(1:niso,i)*rhooft(rhov(i),teff(nt)),iso(1:niso)%z, &
-              temp(i),nelec(i),nions(0:max_ion_levels,1:niso), &
-              partition(0:max_ion_levels,1:niso),zavg(i))
+              vol_inv = rhooft(rhov(i),teff(nt))
+              
+              if (override_rho.gt.0.0d0) vol_inv = override_rho/mass(i)
+              if (override_T_eV.gt.0.0d0) temp(i) = override_T_eV * 11605.0d0
+
+              call sahaionization(atoms(1:niso,i)*vol_inv,iso(1:niso)%z, &
+              temp(i),nelec(i),nions(0:max_ion_levels,1:niso), partition(0:max_ion_levels,1:niso),zavg(i))
+
+              if (print_saha_solution) then
+                !$omp critical(saha_print)
+                rho_cell = mass(i)*vol_inv
+                write(fout,*) '--- SAHA SOLUTION (cell=',i,' nt=',nt,') ---'
+                write(fout,'(A,1pe12.4)') 't_days=', teff(nt)/day
+                write(fout,'(A,1pe12.4)') 'rho_used_g_cm3=', rho_cell
+                write(fout,'(A,1pe12.4)') 'T_used_K=', temp(i)
+                write(fout,'(A,1pe12.4)') 'T_used_eV=', temp(i)/11605.0d0
+                write(fout,'(A,1pe12.4)') 'nelec_cm3=', nelec(i)
+                write(fout,'(A,1pe12.4)') 'zavg=', zavg(i)
+                do ii=1,niso
+                  sum_ions = sum(nions(0:max_ion_levels,ii))
+                  if (sum_ions.gt.0.0d0) then
+                    fion(0:max_ion_levels) = nions(0:max_ion_levels,ii) / sum_ions
+                  else
+                    fion(0:max_ion_levels) = 0.0d0
+                  endif
+                  write(fout,'(A,I4,A,1pe12.4)') 'isotope Z=', iso(ii)%z, '  n_total=', sum_ions
+                  write(fout,'(A,*(1pe12.4))') '  partition(ion=0..max)=', partition(0:max_ion_levels,ii)
+                  write(fout,'(A,*(1pe12.4))') '  frac_ion(ion=0..max)=', fion(0:max_ion_levels)
+                enddo
+                write(fout,*) '-------------------------------------------'
+                !$omp end critical(saha_print)
+              endif
 
             !     calculate opacities
               call calc_planck_int(bp(:,i),fnorm,reslow,reshigh,spect_bins_uvoir(:),temp(i))
               call calc_freefree_abs(alpha_ff(:,i),temp(i),nelec(i),&
                     nions(0:max_ion_levels,1:niso),spect_bins_uvoir(:))
               call expansion_opacity_LTE(alpha_abs_exp(:,i),alpha_scat_exp(:,i),teff(nt),temp(i),&
-                  nions(0:max_ion_levels,1:niso),partition(0:max_ion_levels,1:niso),spect_bins_uvoir(:))
+                  nions(0:max_ion_levels,1:niso),partition(0:max_ion_levels,1:niso),spect_bins_uvoir(:),fout)
 
               alpha_scat(i)=sigma_thomson*nelec(i)
 
@@ -657,7 +724,7 @@
          partition(0:max_ion_levels,1:niso),zavg)
       call calc_planck_int(bp(:,1),fnorm,reslow,reshigh,spect_bins_uvoir(:),tmp)
       call expansion_opacity_LTE(alpha_abs_exp(:,1),alpha_scat_exp(:,1),t,tmp,&
-       nions(0:max_ion_levels,1:niso),partition(0:max_ion_levels,1:niso),spect_bins_uvoir(:))
+       nions(0:max_ion_levels,1:niso),partition(0:max_ion_levels,1:niso),spect_bins_uvoir(:),fout)
                   call calc_freefree_abs(alpha_ff(:,1),tmp,ne,&
                   nions(0:max_ion_levels,1:niso),spect_bins_uvoir(:))
 
@@ -732,7 +799,7 @@
          partition(0:max_ion_levels,1:niso),zavg)
       call calc_planck_int(bp(:,1),fnorm,reslow,reshigh,spect_bins_uvoir(:),temp)
       call expansion_opacity_LTE(alpha_abs_exp(:,1),alpha_scat_exp(:,1),t,temp,&
-       nions(0:max_ion_levels,1:niso),partition(0:max_ion_levels,1:niso),spect_bins_uvoir(:))
+       nions(0:max_ion_levels,1:niso),partition(0:max_ion_levels,1:niso),spect_bins_uvoir(:),fout)
       call calc_freefree_abs(alpha_ff(:,1),temp,ne,&
                   nions(0:max_ion_levels,1:niso),spect_bins_uvoir(:))
 
@@ -762,6 +829,7 @@
       integer, intent(in) :: time_step
       integer :: k, file_unit, cell_index, i
       real(8) :: lambda, alpha_abs_total, alpha_scat_total, density, time_days
+      real(8) :: told_out, tnew_out
       character(256) :: filename
       logical :: file_exists
       ! Get target cell index
@@ -795,10 +863,17 @@
       ! Write data for this time step (3 lines)
       time_days = teff(time_step) / day
       density = mass(ind(cell_index,1,1))*rhooft(rhov(cell_index), teff(time_step))
+      if (override_rho.gt.0.0d0) density = override_rho
+      told_out = temp_old(cell_index)
+      tnew_out = temp(cell_index)
+      if (override_T_eV.gt.0.0d0) then
+        told_out = override_T_eV * 11605.0d0
+        tnew_out = override_T_eV * 11605.0d0
+      endif
       
       ! Line 1+3i: t=, Told=, Tnew=m rho=, abundances
       write(file_unit, '(A,1PE12.4,A,1PE12.4,A,1PE12.4,A,1PE12.4)', advance='no') &
-        't= ', time_days, ' Told= ', temp_old(cell_index), ' Tnew= ', temp(cell_index), ' rho= ', density
+        't= ', time_days, ' Told= ', told_out, ' Tnew= ', tnew_out, ' rho= ', density
       ! Add abundances for active isotopes
       do i = 1, niso
         write(file_unit, '(1X,A,I0,A,I0,A,1PE12.4)', advance='no') &

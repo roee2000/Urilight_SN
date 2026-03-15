@@ -6,41 +6,12 @@
 ! CALCULATING IONIZATION WITH SAHA EQUATION
       Module Atomic_Physics
       use globals , only : niso , fout , data_file , max_isotops
-      use arrays , only : iso , indiso
+      use arrays , only : iso , indiso , spect_bins_uvoir
       use physical_constants
       use general_functions
+      use atomic_data_types
+      use read_nist_db_mod
       implicit none
-
-      integer , parameter :: max_ion_levels=8
-      integer , parameter :: max_atoms=99
-
-      type level_data
-        real(8) :: g=0.0d0
-        real(8) :: energy=1.d90
-      end type level_data
-
-      type line_data
-        integer :: Z=0
-        integer :: ion=0
-        real(8) :: lambda=0.0d0
-        integer :: l1,l2
-        real(8) :: fij
-      end type line_data
-
-      type ion_data
-        integer :: nlevels=0
-        integer :: nlines=0
-        real(8) , allocatable :: partition(:)
-        real(8) , allocatable :: ptemp(:)
-        type (level_data) , allocatable :: level(:)
-      end type ion_data
-
-      type atom_data
-        logical :: active=.false.
-        integer :: Z=0
-        real(8) :: ionization_energy(0:max_ion_levels)=0.0d0
-        type (ion_data) :: ion(0:max_ion_levels)
-      end type atom_data
 
       type (atom_data) , save :: atom(max_atoms)
 
@@ -48,20 +19,24 @@
 
 
       character(20) , save :: linelist='kuruczCD23'
+      character(80) , save :: atomic_db='AtomicDataBase'
       character(20) , save :: pfdata='kuruczCD23'
       integer , save :: nlines
       real(8) , save :: etherm=1.0d0
       real(8) , save :: gfcut=-20d0
       logical , save :: cell_opac_print=.false.
       integer , save :: cell_opac_print_i=1
+      integer , save :: max_ion_with_data(max_atoms)=max_ion_levels
+!     NistDB: max ion stage index (0=ground + ions 1..max_ion_nist => 4 states = max_ion_nist 3)
+      integer , save :: max_ion_nist=3
 
       contains
 
       subroutine init_atomic_data
-      integer :: i,j,k,n,ino,i1,i2
+      integer :: i,j,k,n,ino,i1,i2,z
       integer :: eof,ZZ,LL,NN,nlevels
       real(8) :: gg,en
-      namelist /atomic_physics/ etherm,linelist,pfdata,gfcut,cell_opac_print,cell_opac_print_i
+      namelist /atomic_physics/ etherm,linelist,atomic_db,pfdata,gfcut,cell_opac_print,cell_opac_print_i,max_ion_nist
 
       open(unit=5,file=data_file)
       read(5,nml=atomic_physics,iostat=ino)
@@ -74,45 +49,49 @@
       do i=1,niso
         atom(iso(i)%z)%active=.true.
       enddo
+      max_ion_with_data(1:max_atoms)=max_ion_levels
 
       write(fout,nml=atomic_physics)
 
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-!!                                                                       !!
-!!    Atomic data is taken from the following databases:                 !!
-!!                                                                       !!
-!!    Ionization data: from 'atom_data' of the publicly available        !!
-!!    TARDIS code written by WE Kerzendorf and SA Sim , arXiv:1401.5469  !!
-!!    and SA Sim , arXiv:1401.5469                                       !!
-!!                                                                       !!
-!!    Line list and level data from Kurucz gfall.dat file                !!
-!!                                                                       !!
+!!    Atomic data: Kurucz (AtomicDataBase) or NIST (NistDB)              !!
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 
-      open (unit=10,file='AtomicDataBase/ionization_data')
-      eof=0
-      do while (eof.eq.0)
-        read(10,*,IOSTAT=eof) ZZ,LL,EN
-        if (eof.eq.0) then
-          if (zz.le.max_atoms .and. ll.le.max_ion_levels) then
-            atom(zz)%ionization_energy(ll)=en*electron_volt
-          endif
-        endif
-      enddo
-      close (10)
-
-      if (pfdata.eq.'kuruczCD23') then
-        call prepare_partition_functions(1)
-      elseif (pfdata.eq.'kurucz_table') then
-        call prepare_partition_functions(1)
-        call prepare_partition_functions(2)
+      if (linelist.eq.'NistDB') then
+        call read_nist_load(trim(atomic_db), atom, line, nlines, fout, gfcut, spect_bins_uvoir)
+        call prepare_partition_functions_nist
+!       Cap at init: ground + 3 ions = 4 states => max_ion_nist=3
+        do z=1,max_atoms
+          if (atom(z)%active) max_ion_with_data(z)=min(max_ion_with_data(z),max_ion_nist)
+        enddo
       else
-        print*,'no partition function method defined'
-        stop
-      endif
-      
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+!!    Ionization data: from 'atom_data' of the publicly available        !!
+!!    TARDIS code (WE Kerzendorf and SA Sim , arXiv:1401.5469)             !!
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+        open (unit=10,file='AtomicDataBase/ionization_data')
+        eof=0
+        do while (eof.eq.0)
+          read(10,*,IOSTAT=eof) ZZ,LL,EN
+          if (eof.eq.0) then
+            if (zz.le.max_atoms .and. ll.le.max_ion_levels) then
+              atom(zz)%ionization_energy(ll)=en*electron_volt
+            endif
+          endif
+        enddo
+        close (10)
 
-      call read_kurucz
+        if (pfdata.eq.'kuruczCD23') then
+          call prepare_partition_functions(1)
+        elseif (pfdata.eq.'kurucz_table') then
+          call prepare_partition_functions(1)
+          call prepare_partition_functions(2)
+        else
+          print*,'no partition function method defined'
+          stop
+        endif
+        call read_kurucz
+      endif
 
       return
       end subroutine init_atomic_data
@@ -125,7 +104,7 @@
       real(8) :: A(1:max_ion_levels,size(ni))
       real(8) :: phi(1:max_ion_levels,size(ni))
       real(8) :: tempmin,eps,g,en,kbt,parte,conv,nenew,convfac,neold,tmax
-      integer :: niso,z,i,j,k,max1i,niter,nlevels
+      integer :: niso,z,i,j,k,max1i,niter,nlevels,jmax
 
 !!    subroutine calculates the ionization equilibrium statr for a mixture of isotops with
 !!    atomic density ni, atomic number zi and temperature temp and returns the electron density ne and average
@@ -149,13 +128,20 @@
 
       do i=1,niso
         if (ni(i).lt.eps) cycle
+        jmax=min(max_ion_levels,max_ion_with_data(zi(i)))
         do j=0,max_ion_levels
-!     step 1: calculate partition functions for all isotops ionization levels
-          partition(j,i)=calc_partition(tmax,zi(i),j,2)
-!     step 2: calcualte phi(i,j)=n(i,j+1)/n(i,j)*ne
+          if (j.le.jmax) then
+            partition(j,i)=calc_partition(tmax,zi(i),j,2)
+          else
+            partition(j,i)=0.0d0
+          endif
           if (j.gt.0) then
-            en=atom(zi(i))%ionization_energy(j)
-            phi(j,i)=parte*partition(j,i)/(partition(j-1,i)+eps)*exp(-en/kbt)
+            if (j.le.jmax) then
+              en=atom(zi(i))%ionization_energy(j)
+              phi(j,i)=parte*partition(j,i)/(partition(j-1,i)+eps)*exp(-en/kbt)
+            else
+              phi(j,i)=0.0d0
+            endif
           endif
         enddo
       enddo
@@ -170,24 +156,23 @@
 
       niter=0
       conv=1.0d0
-      do while (niter.lt.max1i .and. conv.gt.1.d-6)
+      do while (niter.lt.max1i .and. conv.gt.1.d-12)
         neold=ne
         nenew=0.0d0
         nij=0.0d0
         do i=1,niso
           if (ni(i).lt.eps) cycle
-          !     step 3.1 - calculate netural ion n(i,j=0) density from 
-          !                conservation equation ni(i)=sum(nij(i,j=0...max_ion_levels))
+          jmax=min(max_ion_levels,max_ion_with_data(zi(i)))
+          !     step 3.1 - conservation ni(i)=sum(nij(i,j=0..jmax))
           A(1,i)=phi(1,i)/ne
           do j=2,max_ion_levels
             A(j,i)=A(j-1,i)*phi(j,i)/ne
           enddo
-          nij(0,i)=ni(i)/(1.0d0+sum(A(:,i)))
-          !     step 3.2 - calculate netural ion n(i,j=0) density from 
-          !                conservation equation ni(i)=sum(nij(i,j=0...max_ion_levels))
+          nij(0,i)=ni(i)/(1.0d0+sum(A(1:jmax,i)))
+          !     step 3.2
           nij(1:max_ion_levels,i)=A(1:max_ion_levels,i)*nij(0,i)
-          !     step 3.3 - calculate contribution to electron density
-          do j=1,max_ion_levels
+          !     step 3.3 - electron density
+          do j=1,jmax
             nenew=nenew+dble(j)*nij(j,i)
           enddo
         enddo
@@ -314,6 +299,40 @@
 
       return
     end subroutine prepare_partition_functions
+
+!!    NistDB: fill partition from levels (same logic as prepare_partition_functions method 1).
+!!    Level arrays are kept (needed for line list and expansion opacity).
+!!    Set max_ion_with_data(z) = highest ion with partition data (no ions assumed above that).
+      subroutine prepare_partition_functions_nist
+      integer :: z,ion,n
+      do z=1,max_atoms
+        if (.not.atom(z)%active) cycle
+        do ion=0,max_ion_levels
+          if (atom(z)%ion(ion)%nlevels.le.0) cycle
+          if (allocated(atom(z)%ion(ion)%partition)) then
+            deallocate(atom(z)%ion(ion)%ptemp)
+            deallocate(atom(z)%ion(ion)%partition)
+          endif
+          allocate(atom(z)%ion(ion)%ptemp(100))
+          allocate(atom(z)%ion(ion)%partition(100))
+          do n=1,100
+            atom(z)%ion(ion)%ptemp(n)=1000.0d0*dble(n)
+            atom(z)%ion(ion)%partition(n)=calc_partition(atom(z)%ion(ion)%ptemp(n),z,ion,1)
+          enddo
+        enddo
+      enddo
+      do z=1,max_atoms
+        if (.not.atom(z)%active) cycle
+        max_ion_with_data(z)=0
+        do ion=max_ion_levels,0,-1
+          if (allocated(atom(z)%ion(ion)%partition)) then
+            max_ion_with_data(z)=ion
+            exit
+          endif
+        enddo
+      enddo
+      return
+      end subroutine prepare_partition_functions_nist
 
       subroutine read_kurucz
       integer :: i,j,i1,i2,n,totlines,eof
@@ -832,7 +851,10 @@
         enddo
         if (z.eq.ion)  part = 1
       elseif (method.eq.2) then
-
+        if (.not.allocated(atom(z)%ion(ion)%ptemp)) then
+          write(*,*) 'ERROR: no partition data for Z=',z,' ion=',ion,' (failed to read energy levels)'
+          stop
+        endif
         i=find_index(temp,atom(z)%ion(ion)%ptemp(:),ierr)
         part=interp1(atom(z)%ion(ion)%ptemp(i:i+1),atom(z)%ion(ion)%partition(i:i+1),temp)
 
@@ -887,12 +909,52 @@
       data ni(:,30)/59,72/
       data ni(:,31)/61,74/
       data ni(:,32)/63,78/
+!     Extended for light kilonova: As through Te (Z=33--52), incl. Se(34), Te(52)
+      data ni(:,33)/75,75/
+      data ni(:,34)/74,80/
+      data ni(:,35)/79,81/
+      data ni(:,36)/84,84/
+      data ni(:,37)/85,85/
+      data ni(:,38)/88,88/
+      data ni(:,39)/89,89/
+      data ni(:,40)/90,96/
+      data ni(:,41)/93,93/
+      data ni(:,42)/98,98/
+      data ni(:,43)/98,98/
+      data ni(:,44)/102,102/
+      data ni(:,45)/103,103/
+      data ni(:,46)/106,106/
+      data ni(:,47)/107,107/
+      data ni(:,48)/114,114/
+      data ni(:,49)/115,115/
+      data ni(:,50)/120,120/
+      data ni(:,51)/121,121/
+      data ni(:,52)/128,130/
+!     Z=53--70 (I through Yb)
+      data ni(:,53)/127,127/
+      data ni(:,54)/132,132/
+      data ni(:,55)/133,133/
+      data ni(:,56)/138,138/
+      data ni(:,57)/139,139/
+      data ni(:,58)/140,140/
+      data ni(:,59)/141,141/
+      data ni(:,60)/144,144/
+      data ni(:,61)/145,145/
+      data ni(:,62)/152,152/
+      data ni(:,63)/153,153/
+      data ni(:,64)/158,158/
+      data ni(:,65)/159,159/
+      data ni(:,66)/164,164/
+      data ni(:,67)/165,165/
+      data ni(:,68)/166,166/
+      data ni(:,69)/169,169/
+      data ni(:,70)/174,174/
                  
-      allocate(indiso(max_atoms,100))
+      allocate(indiso(max_atoms,200))
       allocate(iso(max_isotops))
       indiso=-1
       n=0
-      do i=1,32
+      do i=1,70
         do j=ni(1,i),ni(2,i)
           n=n+1
           iso(n)%z=i

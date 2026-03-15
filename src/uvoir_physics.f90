@@ -101,9 +101,10 @@
       return
       end subroutine calc_freefree_abs
 
-      subroutine expansion_opacity_LTE(alpha_abs,alpha_scat,time,temp,nij,partition,spect_bins)
+      subroutine expansion_opacity_LTE(alpha_abs,alpha_scat,time,temp,nij,partition,spect_bins,fout)
       real(8) , intent(in) :: time,temp,nij(0:,:),partition(0:,:),spect_bins(:)
       real(8) , intent(out) :: alpha_abs(:),alpha_scat(:)
+      integer , intent(in) :: fout
       integer :: n,i,j,z,k1,k2,niso,nions,nwave,nbins,lambin
       real(8) :: nijk,nu,g,fij,kbt,en1,en2,eline,stimfac,sigtot,alpha,onexp,pa,ps
       real(8) :: dlam,lambda,ct,tausob,psob
@@ -142,17 +143,19 @@
       sigtot=pi*electron_charge**2.0d0/(electron_mass*clight)
       ct=clight*time
 
-      lambin=1
       do n=1,nlines
 
+        lambin = line(n)%ibin
+        if (lambin.le.0) cycle
         lambda=line(n)%lambda
+        !check if lambda is in the spectral bins
+        !if not print error message
+        if (lambda.gt.spect_bins(lambin+1) .or. lambda.lt.spect_bins(lambin)) then
+          write(fout,*) 'lambda = ', lambda, ' is not in the spectral bins'
+          write(fout,*) 'spect_bins(lambin) = ', spect_bins(lambin), ' spect_bins(lambin+1) = ', spect_bins(lambin+1)
+        endif
 
-        if (lambda.lt.spect_bins(1) .or. lambda.gt.spect_bins(nbins)) cycle
-
-        do while (lambda.gt.spect_bins(lambin+1))
-          lambin=lambin+1
-        enddo
-        if (lambda.lt.spect_bins(lambin) .or. lambda.gt.spect_bins(lambin+1)) print*,'bin prob sob'
+        write(fout,*) 'good: spect_bins(lambin) = ', spect_bins(lambin), ' spect_bins(lambin+1) = ', spect_bins(lambin+1), ' lambda = ', lambda
 
         z=line(n)%z
         j=line(n)%ion

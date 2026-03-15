@@ -1,6 +1,6 @@
 # ---- Compiler settings ---------
 COMPILER=gfortran
-OPTIMIZATION=-g -fcheck=bounds -fcheck=mem -cpp -ffree-line-length-none -fno-range-check -fopenmp
+OPTIMIZATION=-g -fcheck=bounds -fcheck=mem -cpp -ffree-line-length-none -fno-range-check -fopenmp 
 # -pg: add time profiling
 LDFLAGS=-isysroot /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk -fopenmp
 
@@ -11,7 +11,7 @@ EXE=$(BUILD_DIR)/UriLight.exe
 # SLURM configuration
 slurm_partition = cluster
 slurm_account = rcl
-slurm_ncores = 32
+slurm_ncores = 4
 
 # Create build directory if it doesn't exist
 $(shell mkdir -p $(BUILD_DIR))
@@ -19,7 +19,7 @@ $(shell mkdir -p $(BUILD_DIR))
 all: $(EXE)
 
 # Object files with build directory prefix
-OBJ= $(addprefix $(BUILD_DIR)/, globals.o logger.o physical_constants.o arrays.o general_functions.o transport_general_functions.o radioactive_decay.o randomnumbers.o mesh.o gammatransfer.o uvoirtransfer.o diagnostics.o gamma_physics.o atomic_physics.o uvoir_physics.o gray_opacity.o)
+OBJ= $(addprefix $(BUILD_DIR)/, globals.o logger.o physical_constants.o atomic_data_types.o read_nist_db.o arrays.o general_functions.o transport_general_functions.o radioactive_decay.o randomnumbers.o mesh.o gammatransfer.o uvoirtransfer.o diagnostics.o gamma_physics.o atomic_physics.o uvoir_physics.o gray_opacity.o)
 
 $(EXE): $(OBJ) $(BUILD_DIR)/UriLight.o
 	$(COMPILER) $(OPTIMIZATION) $(LDFLAGS) -o $(EXE) $(BUILD_DIR)/UriLight.o $(OBJ)
@@ -31,6 +31,12 @@ $(BUILD_DIR)/logger.o: src/logger.f90 $(BUILD_DIR)/globals.o
 	$(COMPILER) $(OPTIMIZATION) $(LDFLAGS) -J$(BUILD_DIR) -c $< -o $@
 
 $(BUILD_DIR)/physical_constants.o: src/physical_constants.f90 
+	$(COMPILER) $(OPTIMIZATION) $(LDFLAGS) -J$(BUILD_DIR) -c $< -o $@
+
+$(BUILD_DIR)/atomic_data_types.o: src/atomic_data_types.f90
+	$(COMPILER) $(OPTIMIZATION) $(LDFLAGS) -J$(BUILD_DIR) -c $< -o $@
+
+$(BUILD_DIR)/read_nist_db.o: src/read_nist_db.f90 $(BUILD_DIR)/atomic_data_types.o $(BUILD_DIR)/physical_constants.o
 	$(COMPILER) $(OPTIMIZATION) $(LDFLAGS) -J$(BUILD_DIR) -c $< -o $@
 
 $(BUILD_DIR)/arrays.o: src/arrays.f90 $(BUILD_DIR)/globals.o
@@ -45,7 +51,7 @@ $(BUILD_DIR)/randomnumbers.o: src/randomnumbers.f90 $(BUILD_DIR)/physical_consta
 $(BUILD_DIR)/radioactive_decay.o: src/radioactive_decay.f90 $(BUILD_DIR)/randomnumbers.o $(BUILD_DIR)/physical_constants.o
 	$(COMPILER) $(OPTIMIZATION) $(LDFLAGS) -J$(BUILD_DIR) -c $< -o $@
 
-$(BUILD_DIR)/atomic_physics.o: src/atomic_physics.f90 $(BUILD_DIR)/physical_constants.o $(BUILD_DIR)/general_functions.o $(BUILD_DIR)/globals.o $(BUILD_DIR)/arrays.o
+$(BUILD_DIR)/atomic_physics.o: src/atomic_physics.f90 $(BUILD_DIR)/physical_constants.o $(BUILD_DIR)/general_functions.o $(BUILD_DIR)/globals.o $(BUILD_DIR)/arrays.o $(BUILD_DIR)/atomic_data_types.o $(BUILD_DIR)/read_nist_db.o
 	$(COMPILER) $(OPTIMIZATION) $(LDFLAGS) -J$(BUILD_DIR) -c $< -o $@
 
 $(BUILD_DIR)/mesh.o: src/mesh.f90 $(BUILD_DIR)/general_functions.o $(BUILD_DIR)/randomnumbers.o $(BUILD_DIR)/physical_constants.o $(BUILD_DIR)/globals.o $(BUILD_DIR)/atomic_physics.o $(BUILD_DIR)/logger.o
