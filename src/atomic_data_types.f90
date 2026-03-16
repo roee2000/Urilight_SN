@@ -5,18 +5,19 @@
       integer , parameter :: max_atoms=99
 
       type level_data
-        real(8) :: g=0.0d0
-        real(8) :: energy=1.d90
+        real(16) :: g=0.0d0
+        real(16) :: energy=1.d90
       end type level_data
 
       type line_data
         integer :: z=0
         integer :: ion=0
-        real(8) :: lambda=0.0d0
+        real(16) :: lambda=0.0d0
+        real(16) :: elo=0.0d0
         integer :: ibin=0
         integer :: l1=0
         integer :: l2=0
-        real(8) :: fij=0.0d0
+        real(16) :: fij=0.0d0
       end type line_data
 
       type ion_data

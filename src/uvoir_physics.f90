@@ -106,7 +106,7 @@
       real(8) , intent(out) :: alpha_abs(:),alpha_scat(:)
       integer , intent(in) :: fout
       integer :: n,i,j,z,k1,k2,niso,nions,nwave,nbins,lambin
-      real(8) :: nijk,nu,g,fij,kbt,en1,en2,eline,stimfac,sigtot,alpha,onexp,pa,ps
+      real(16) :: nijk,nu,g,fij,kbt,en1,en2,eline,stimfac,sigtot,alpha,onexp,pa,ps
       real(8) :: dlam,lambda,ct,tausob,psob
       real(8) :: nop(0:max_ion_levels,max_atoms)
       logical :: activez(max_atoms)
@@ -143,20 +143,13 @@
       sigtot=pi*electron_charge**2.0d0/(electron_mass*clight)
       ct=clight*time
 
+      write(fout,*) 'nlines = ', nlines
+
       do n=1,nlines
 
         lambin = line(n)%ibin
-        if (lambin.le.0) cycle
         lambda=line(n)%lambda
-        !check if lambda is in the spectral bins
-        !if not print error message
-        if (lambda.gt.spect_bins(lambin+1) .or. lambda.lt.spect_bins(lambin)) then
-          write(fout,*) 'lambda = ', lambda, ' is not in the spectral bins'
-          write(fout,*) 'spect_bins(lambin) = ', spect_bins(lambin), ' spect_bins(lambin+1) = ', spect_bins(lambin+1)
-        endif
-
-        write(fout,*) 'good: spect_bins(lambin) = ', spect_bins(lambin), ' spect_bins(lambin+1) = ', spect_bins(lambin+1), ' lambda = ', lambda
-
+       
         z=line(n)%z
         j=line(n)%ion
         if (.not.activez(z)) cycle
@@ -167,10 +160,9 @@
         nu=clight/lambda
 
         g=atom(z)%ion(j)%level(k1)%g
-        en1=atom(z)%ion(j)%level(k1)%energy
+        en1=line(n)%elo
         eline=planck*nu
 
-!       nijk=nij(j,i)*g*exp(-en1/kbt)/partition(j,i)
         nijk=nop(j,z)*g*exp(-en1/kbt)
 
         stimfac=1.0d0-exp(-eline/kbt)

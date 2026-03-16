@@ -19,7 +19,7 @@
       real(8), intent(in) :: gfcut
       real(8), intent(in) :: spect_bins(:)
       integer :: z, ion, ZZ, LL, eof, nlines_tot, j, iu
-      real(8) :: EN
+      real(16) :: EN
       character(256) :: ionfile, fgf, flv
       character(2) :: sym
       character(4) :: roman
@@ -87,7 +87,7 @@
       integer, intent(in) :: fout
       character(256) :: fgf, flv
       integer :: eof, iu, iu2, nlev, ilev
-      real(8) :: wl, elo_1000, gf, e_1000, jval
+      real(16) :: wl, elo_1000, gf, e_1000, jval
       type(level_data) :: lvl
       type(level_data), allocatable :: buf(:)
 
@@ -154,7 +154,7 @@
       integer, intent(in) :: fout
       character(256) :: fgf
       integer :: eof, iu, i1, i2, nlevels, lambin, nbins, iu_log, row_idx, accepted_idx
-      real(8) :: wl, elo_1000, gf, elo_erg, ehi_erg, lambda
+      real(16) :: wl, elo_1000, gf, elo_erg, ehi_erg, lambda
 
       fgf = trim(path)//'/out_gg/outggf_sorted_'//trim(sym)//'_'//trim(roman)
       nlevels = atom(z)%ion(ion)%nlevels
@@ -182,6 +182,7 @@
         line(jstart)%z = z
         line(jstart)%ion = ion
         line(jstart)%lambda = wl * 1.d-8
+        line(jstart)%elo = elo_erg
         line(jstart)%l1 = i1
         line(jstart)%l2 = i2
         line(jstart)%fij = gf / atom(z)%ion(ion)%level(i1)%g
@@ -200,7 +201,7 @@
           line(jstart)%ibin = 0
         endif
 
-        if (z.eq.52 .and. (ion.eq.1 .or. ion.eq.2) .and. .false.) then
+        if (z.eq.52 .and. (ion.eq.1 .or. ion.eq.2)) then
           if (.not.ii_iii_log_initialized) then
             open(newunit=iu_log, file='output/urilight_lines_II_III.log', status='replace', action='write')
             write(iu_log,'(A)') '# z ion roman src_file row_idx accepted_idx wl_A lambda_cm e_low_1000 gf e_low_raw_erg e_up_raw_erg i1 i2 level1_energy level2_energy g1 g2 delta_low delta_high fij ibin'
@@ -284,7 +285,7 @@
       end subroutine add_level_sorted
 
       integer function find_closest_level(e_erg, level, length)
-      real(8), intent(in) :: e_erg
+      real(16), intent(in) :: e_erg
       type(level_data), intent(in) :: level(:)
       integer, intent(in) :: length
       integer :: lo, hi, mid

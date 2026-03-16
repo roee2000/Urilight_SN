@@ -504,6 +504,7 @@
         line(j)%z=z(i)
         line(j)%ion=ion(i)
         line(j)%lambda=lambda(i)
+        line(j)%elo=elo(i)
 
         lvl%energy=elo(i)
         lvl%g=glo(i)
