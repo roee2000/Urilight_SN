@@ -116,13 +116,6 @@
         atom(z)%ion(ion)%level(1:nlev) = buf(1:nlev)
       endif
       deallocate(buf)
-      ! write all level energies to output file (one level per line)
-      if (nlev.gt.0) then
-        write(fout, *) 'level energies for Z=', z, ' ion=', ion, ' nlevels=', nlev
-        do ilev = 1, nlev
-          write(fout,'(I8,1X,ES24.16E3)') ilev, atom(z)%ion(ion)%level(ilev)%energy
-        enddo
-      endif
       if (nlev.eq.0) return
 
       open(newunit=iu, file=fgf, status='old', action='read', iostat=eof)
@@ -199,23 +192,6 @@
           endif
         else
           line(jstart)%ibin = 0
-        endif
-
-        if (z.eq.52 .and. (ion.eq.1 .or. ion.eq.2)) then
-          if (.not.ii_iii_log_initialized) then
-            open(newunit=iu_log, file='output/urilight_lines_II_III.log', status='replace', action='write')
-            write(iu_log,'(A)') '# z ion roman src_file row_idx accepted_idx wl_A lambda_cm e_low_1000 gf e_low_raw_erg e_up_raw_erg i1 i2 level1_energy level2_energy g1 g2 delta_low delta_high fij ibin'
-            close(iu_log)
-            ii_iii_log_initialized = .true.
-          endif
-          open(newunit=iu_log, file='output/urilight_lines_II_III.log', status='old', position='append', action='write')
-          write(iu_log,'(I3,1X,I3,1X,A,1X,A,1X,I8,1X,I8,1X,ES24.16E3,1X,ES24.16E3,1X,ES24.16E3,1X,ES24.16E3,1X,ES24.16E3,1X,ES24.16E3,1X,I8,1X,I8,1X,ES24.16E3,1X,ES24.16E3,1X,ES24.16E3,1X,ES24.16E3,1X,ES24.16E3,1X,ES24.16E3,1X,ES24.16E3,1X,I8)') &
-            z, ion, trim(roman), trim(fgf), row_idx, accepted_idx, wl, line(jstart)%lambda, elo_1000, gf, &
-            elo_erg, ehi_erg, i1, i2, atom(z)%ion(ion)%level(i1)%energy, atom(z)%ion(ion)%level(i2)%energy, &
-            atom(z)%ion(ion)%level(i1)%g, atom(z)%ion(ion)%level(i2)%g, &
-            abs(atom(z)%ion(ion)%level(i1)%energy-elo_erg), abs(atom(z)%ion(ion)%level(i2)%energy-ehi_erg), &
-            line(jstart)%fij, line(jstart)%ibin
-          close(iu_log)
         endif
       enddo
       close(iu)

@@ -143,8 +143,6 @@
       sigtot=pi*electron_charge**2.0d0/(electron_mass*clight)
       ct=clight*time
 
-      write(fout,*) 'nlines = ', nlines
-
       do n=1,nlines
 
         lambin = line(n)%ibin

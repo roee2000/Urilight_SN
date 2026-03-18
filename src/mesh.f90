@@ -31,16 +31,17 @@
       real(8) :: tmpmass,tmptotmass,tmpiso(50)
       real(8) :: Mni0,Mfe0,Mime0,ekin,dmix
       real(8) :: Mej,Vej,Rej,Vejmax,fac,vejfacmax,ni_fac
-      real(8) :: xsum
+      real(8) :: xsum,amu_use
       integer :: nmix,i1,i2
-      integer :: ejecta_type,mesh_type,imat,iso_i
-      logical :: ismix
+      integer :: ejecta_type,mesh_type,imat,iso_i,zloc
+      logical :: ismix,use_atom_data_mass
       character(256) :: log_msg
       logical :: use_uniform_composition
       integer, parameter :: max_uniform_materials=10
       integer :: n_uniform_materials
       integer :: uniform_Z(max_uniform_materials), uniform_A(max_uniform_materials)
       real(8) :: uniform_X(max_uniform_materials)
+      real(8) :: atom_data_mass_amu(max_atoms)
       character(50) :: filename
       real(8) :: isomass(max_isotops)
 !     1 - constant density
@@ -51,7 +52,7 @@
 
       namelist /mesh/ dim,nc1,nc2,nc3,ejecta_type,Mni0,Mfe0,Mime0,&
                       ekin,vej,vejmax,mesh_type,ismix,dmix,nmix,vejfacmax,ni_fac,&
-                      use_uniform_composition,n_uniform_materials,uniform_Z,uniform_A,uniform_X
+                      use_uniform_composition,n_uniform_materials,uniform_Z,uniform_A,uniform_X,use_atom_data_mass
 
 !!    first define all isotops
       call add_full_isotop_list
@@ -76,10 +77,13 @@
       uniform_Z=0
       uniform_A=0
       uniform_X=0.0d0
+      use_atom_data_mass=.false.
+      atom_data_mass_amu=-1.0d0
  
       open(unit=5,file=data_file)
       read(5,nml=mesh,iostat=ino)
       close(5)
+      if (use_atom_data_mass) call load_atom_data_masses(atom_data_mass_amu)
 
       ekin=ekin*1d51
       mej=mej*solar_mass
@@ -259,7 +263,19 @@
           atoms(indiso(1,1),i)=0.4d0         ! H (40%)
           atoms(indiso(8,16),i)=0.4d0        ! O (40%)
         endif
-        atoms(:,i)=mass(i)*atoms(:,i)/iso(1:niso)%A
+        if (use_atom_data_mass) then
+          do j=1,niso
+            zloc=iso(j)%z
+            if (zloc.ge.1 .and. zloc.le.max_atoms .and. atom_data_mass_amu(zloc).gt.0.0d0) then
+              amu_use=atom_data_mass_amu(zloc)
+            else
+              amu_use=iso(j)%A*avogadro
+            endif
+            atoms(j,i)=mass(i)*atoms(j,i)/(amu_use/avogadro)
+          enddo
+        else
+          atoms(:,i)=mass(i)*atoms(:,i)/iso(1:niso)%A
+        endif
       enddo
 
       if (ismix) call mix1d(dmix,nmix)
@@ -394,6 +410,23 @@
 
       return
       end subroutine init_mesh
+
+    subroutine load_atom_data_masses(mass_amu)
+      real(8), intent(out) :: mass_amu(max_atoms)
+      integer :: iu,ios,z
+      real(8) :: m
+      character(8) :: sym
+      mass_amu=-1.0d0
+      open(newunit=iu,file='AtomicDataBase/atom_data',status='old',action='read',iostat=ios)
+      if (ios.ne.0) return
+      do
+        read(iu,*,iostat=ios) z,m,sym
+        if (ios.ne.0) exit
+        if (z.ge.1 .and. z.le.max_atoms) mass_amu(z)=m
+      enddo
+      close(iu)
+      return
+    end subroutine load_atom_data_masses
 
       subroutine findijk(r,t,i,j,k)
       real(8) , intent(in) :: r(3),t

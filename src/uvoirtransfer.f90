@@ -269,7 +269,7 @@
           nujnudnu(:)=0.0d0
           temp_old(:)=temp(:)
 
-          !$omp parallel do private(nions,partition,fnorm,reslow,reshigh,T_eV_val,t_days_val,mat_id,vol,kR_abs,kR_scat,kP_abs,vol_inv)
+          !$omp parallel do private(nions,partition,fnorm,reslow,reshigh,T_eV_val,t_days_val,mat_id,vol,kR_abs,kR_scat,kP_abs,vol_inv,rho_cell,ii,sum_ions,fion)
           do i=1,nctot
             if (use_gray_opacity) then
               ! Gray opacity mode: use pre-computed tables
