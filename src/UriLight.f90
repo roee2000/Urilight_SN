@@ -12,6 +12,7 @@
       use Mesh
       use GammaTransfer
       use UvoirTransfer
+      use Uvoir_Physics , only : init_uvoir_physics
       use diagnostics
       use Logger
       use globals, only: fout
@@ -22,6 +23,7 @@
       call system_clock(count_start, count_rate, count_max)
 
       call init_simulation
+      call init_uvoir_physics
       call init_random_numbers
       call init_nuclear_data
       call init_mesh

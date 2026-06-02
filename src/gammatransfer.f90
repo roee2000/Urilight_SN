@@ -23,8 +23,30 @@
       logical , save :: ispp=.false.
 
       real(8) , save :: EpelletGamma
+      real(8) , parameter :: gamma_e_min_frac=1.0d-3
 
       contains
+
+      subroutine deposit_gamma_energy(i,j,k,nt,p,edep)
+      integer , intent(in) :: i,j,k,nt
+      type(epacket) , intent(inout) :: p
+      real(8) , intent(in) :: edep
+      real(8) :: d
+      integer :: nt_dep
+
+      ! edep and p%Etot are MC energy weights [erg]; hnu is only for opacities.
+      if (edep.le.0.0d0 .or. p%Etot.le.0.0d0) return
+      nt_dep=max(1,min(nt,ntimes))
+      d=min(edep,p%Etot)
+      Edep_gamma(nt_dep,ind(i,j,k))=Edep_gamma(nt_dep,ind(i,j,k))+d
+      p%Etot=p%Etot-d
+      return
+      end subroutine deposit_gamma_energy
+
+      logical function gamma_energy_done(p)
+      type(epacket) , intent(in) :: p
+      gamma_energy_done=(p%E0.gt.0.0d0 .and. p%Etot.lt.gamma_e_min_frac*p%E0) .or. p%Etot.le.0.0d0
+      end function gamma_energy_done
 
       subroutine init_gamma
       integer :: i,j,k,totpel,ino
@@ -99,111 +121,106 @@
       end subroutine init_gamma
 
       subroutine fill_external_heating()
-      integer :: nt,i
-      real(8) :: t_days,edot,totmass,tfac
+        integer :: nt,i
+        real(8) :: t_days,edot,totmass,tfac
 
-      edep_pos=0.0d0
-      ecr_gamma=0.0d0
-      totmass=sum(mass(:))
-      if (totmass.le.0.0d0) return
+        edep_pos=0.0d0
+        ecr_gamma=0.0d0
+        totmass=sum(mass(:))
+        if (totmass.le.0.0d0) return
 
-      do nt=1,ntimes
-        t_days=teff(nt)/day
-        if (t_days.le.0.0d0) cycle
-        tfac=(t_days/heating_t0_days)**(-heating_alpha)
-        edot=heating_rate0*tfac
-        if (heating_per_mass) then
-          do i=1,nctot
-            Edep_gamma(nt,i)=edot*mass(i)*dt(nt)
-          enddo
-        else
-          do i=1,nctot
-            Edep_gamma(nt,i)=edot*dt(nt)*mass(i)/totmass
-          enddo
-        endif
-        ecr_gamma(nt)=sum(Edep_gamma(nt,:))
-      enddo
+        do nt=1,ntimes
+          t_days=teff(nt)/day
+          if (t_days.le.0.0d0) cycle
+          tfac=(t_days/heating_t0_days)**(-heating_alpha)
+          edot=heating_rate0*tfac
+          if (heating_per_mass) then
+            do i=1,nctot
+              Edep_gamma(nt,i)=edot*mass(i)*dt(nt)
+            enddo
+          else
+            do i=1,nctot
+              Edep_gamma(nt,i)=edot*dt(nt)*mass(i)/totmass
+            enddo
+          endif
+          ecr_gamma(nt)=sum(Edep_gamma(nt,:))
+        enddo
 
-      return
+        return
       end subroutine fill_external_heating
 
       subroutine gamma_transport
-      integer :: i,j,k,nt,np,ip,jp,kp,NiCo,ierr
-      logical :: inmesh,intime,isabs,isprob
-      type (epacket) :: p
-      integer :: nprob,ndep,nout,ndirect,nscat
-      real(8) :: Ni56Edep,Co56Edep,Etotm,vm(3)
+        integer :: i,j,k,nt,np,ip,jp,kp,NiCo,ierr
+        logical :: inmesh,intime,isabs,isprob
+        type (epacket) :: p
+        integer :: nprob,ndep,nout,ndirect,nscat
+        real(8) :: Ni56Edep,Co56Edep
 
-!     call calc_rodr
-      if (onlyrodr) stop
-      if (use_external_heating) then
-        call log_info('External heating enabled: skipping gamma transport.')
-        return
-      endif
+        !     call calc_rodr
+        if (onlyrodr) stop
+        if (use_external_heating) then
+          call log_info('External heating enabled: skipping gamma transport.')
+          return
+        endif
 
-      call write_timestamp_gamma()
-      nprob=0
-      nout=0
-      ndep=0
-      ndirect=0
-      nscat=0
-     
-      do k=1,nc3
-        do j=1,nc2
-          do i=1,nc1
-            print*,'i,j,k,np=',i,j,k,pellets(i,j,k)
-            do np=1,pellets(i,j,k)
+        call write_timestamp_gamma()
+        nprob=0
+        nout=0
+        ndep=0
+        ndirect=0
+        nscat=0
+      
+        do k=1,nc3
+          do j=1,nc2
+            do i=1,nc1
+              print*,'i,j,k,np=',i,j,k,pellets(i,j,k)
+              do np=1,pellets(i,j,k)
 
-            p=new_gamma(i,j,k,EpelletGamma,NiCo)
+              p=new_gamma(i,j,k,EpelletGamma,NiCo)
 
-            nt=max(find_index(p%t,times,ierr),1) !! all energy deposited before tinit is given to first time step
-
-            ecr_gamma(nt)=ecr_gamma(nt)+EpelletGamma
-
-            if (NiCo.eq.2) then  !! deposit Co56 positron locally
-!             Edep_pos(nt,ind(i,j,k))=Edep_pos(nt,ind(i,j,k))+p%Etot*posEfrac
-              edep_pos(nt,ind(i,j,k))=edep_pos(nt,ind(i,j,k))+EpelletGamma*posefrac*1.0d0
-            endif
-
-
-            ip=i
-            jp=j
-            kp=k
-            call track_gamma(ip,jp,kp,p,inmesh,intime,isabs,isprob)
-
-            if (isprob) then
-              nprob=nprob+1
-            endif
-
-            if (.not.inmesh) then
-              call write_to_spectrum(p,spect_gamma,spect_bins_gamma,spect_type_gamma)
-              call integrate_bolometric(p,gout,2)
-              nout=nout+1
-              if (p%direct) then
-                ndirect=ndirect+1
-              else
-                nscat=nscat+1
-              endif
-            elseif (isabs) then
               nt=max(find_index(p%t,times,ierr),1) !! all energy deposited before tinit is given to first time step
-!!  deposit in comoving frame !
-              vm=vofr(p%r,teff(nt))
-              Etotm=comoving2lab_transform_E(p%Etot,p%n,vm,2)
-              Edep_gamma(nt,ind(ip,jp,kp))=Edep_gamma(nt,ind(ip,jp,kp))+Etotm
-              ndep=ndep+1
-            endif
 
+              ecr_gamma(nt)=ecr_gamma(nt)+EpelletGamma
+
+              if (NiCo.eq.2) then  !! deposit Co56 positron locally
+                !             Edep_pos(nt,ind(i,j,k))=Edep_pos(nt,ind(i,j,k))+p%Etot*posEfrac
+                edep_pos(nt,ind(i,j,k))=edep_pos(nt,ind(i,j,k))+EpelletGamma*posefrac*1.0d0
+              endif
+
+
+              ip=i
+              jp=j
+              kp=k
+              call track_gamma(ip,jp,kp,p,inmesh,intime,isabs,isprob)
+
+              if (isprob) then
+                nprob=nprob+1
+              endif
+
+              if (.not.inmesh) then
+                call write_to_spectrum(p,spect_gamma,spect_bins_gamma,spect_type_gamma)
+                call integrate_bolometric(p,gout,2)
+                nout=nout+1
+                if (p%direct) then
+                  ndirect=ndirect+1
+                else
+                  nscat=nscat+1
+                endif
+              elseif (isabs .or. gamma_energy_done(p)) then
+                ndep=ndep+1
+              endif
+
+              enddo
             enddo
           enddo
         enddo
-      enddo
-      print*,'nprob=',nprob
-      print*,'nout=',nout
-      print*,'ndirect,nscat,tot=',ndirect,nscat,ndirect+nscat
-      print*,'ndep=',ndep
+        print*,'nprob=',nprob
+        print*,'nout=',nout
+        print*,'ndirect,nscat,tot=',ndirect,nscat,ndirect+nscat
+        print*,'ndep=',ndep
 
-      return
-      end subroutine gamma_transport
+        return
+        end subroutine gamma_transport
 
       function new_gamma(i,j,k,Etot,NiCo)
       integer , intent (in) :: i,j,k
@@ -230,6 +247,7 @@
 
       new_gamma%hnu=comoving2lab_transform_E(new_gamma%hnu,new_gamma%n,v,1)
       new_gamma%Etot=comoving2lab_transform_E(Etot,new_gamma%n,v,1)*fac
+      new_gamma%E0=new_gamma%Etot
       new_gamma%n=comoving2lab_transform_n(new_gamma%n,v,1)
 
       new_gamma%direct=.true.
@@ -241,11 +259,10 @@
       integer , intent (inout) :: i,j,k
       type (epacket) , intent (inout) :: p
       logical , intent (out) :: inmesh,intime,isabs,isprob
-      integer :: n,nt,i1,j1,k1,ierr
-      real(8) :: v(3),vm(3),nm(3),rhom,Etotm,rcut(3),tcut,hnum,z,dt,rad
-      real(8) :: q,f,cost,phi
-      real(8) :: ds,ds_time,ds_edge,ds_event
-      real(8) :: sig_s,sig_pe,sig_pp,sig_tot
+      integer :: nt,i1,j1,k1,ierr
+      real(8) :: vm(3),rhom,rcut(3),tcut,hnum,rad,tau
+      real(8) :: ds,ds_time,ds_edge
+      real(8) :: sig_s,sig_pe,sig_pp,kappa_abs
 
 
       inmesh=.true.
@@ -253,17 +270,12 @@
       isprob=.false.
       isabs=.false.
 
-!     print*,'start track'
-
-      n=0
-
       nt=find_index(p%t,times,ierr)
 
-      do while (inmesh .and. intime .and. .not.isabs)
+      do while (inmesh .and. intime .and. .not.gamma_energy_done(p))
 
         ds_time=(times(nt+1)-p%t)*clight
 
-!       print*,'in cell i,j,k,nt=',i,j,k,nt
         call cut_nearest_surface(p%r,p%n,p%t,nt,i,j,k,ds_edge,rcut,tcut,i1,j1,k1,isprob)
 
         if (isprob) exit
@@ -271,7 +283,6 @@
         vm=vofr(p%r,teff(nt))
 
         hnum=comoving2lab_transform_E(p%hnu,p%n,vm,2)
-        Etotm=comoving2lab_transform_E(p%Etot,p%n,vm,2)
         sig_s=0.0d0
         sig_pe=0.0d0
         sig_pp=0.0d0
@@ -282,16 +293,16 @@
           call total_photoelectric_absorption(hnum,atoms(1:Niso,ind(i,j,k)),iso(1:Niso)%z,sig_pe)
         endif
         if (ispp) then
-          call total_pair_production(hnum,atoms(1:Niso,ind(i,j,k)),iso(1:Niso)%z,sig_pe)
+          call total_pair_production(hnum,atoms(1:Niso,ind(i,j,k)),iso(1:Niso)%z,sig_pp)
         endif
 
-        sig_tot=(hnum/p%hnu)*(sig_s+sig_pe+sig_pp)
+        kappa_abs=(hnum/p%hnu)*(sig_s+sig_pe+sig_pp)
+        ds=min(ds_time,ds_edge)
 
-        call random_number(z)
-
-        ds_event=-log(z)/(rhom*sig_tot)
-
-        ds=min(ds_time,ds_edge,ds_event)
+        if (kappa_abs.gt.0.0d0 .and. rhom.gt.0.0d0 .and. ds.gt.0.0d0) then
+          tau=kappa_abs*rhom*ds
+          call deposit_gamma_energy(i,j,k,nt,p,p%Etot*(1.0d0-exp(-tau)))
+        endif
 
         p%r=p%r+p%n*ds
         p%t=p%t+ds/clight
@@ -301,7 +312,6 @@
           if (nt.gt.ntimes) then
             intime=.false.
           else
-!           call findijk(p%r,teff(nt),i,j,k)
             rad=sqrt(sum(p%r(:)**2.0d0))
             do i1=1,nc1
               if (rad.ge.v1(i1)*teff(nt) .and. rad.le.v1(i1+1)*teff(nt)) i=i1
@@ -313,52 +323,16 @@
           k=k1
           if (i.gt.nc1 .or. j.gt.nc2 .or. k.gt.nc3) inmesh=.false.
           if (i.lt.1   .or. j.lt.1   .or. k.lt.1)   inmesh=.false.
-        elseif (ds_event.eq.ds) then
-          n=n+1
-          p%direct=.false.
-
-          vm=vofr(p%r,teff(nt))
-          hnum=comoving2lab_transform_E(p%hnu,p%n,vm,2)
-          Etotm=comoving2lab_transform_E(p%Etot,p%n,vm,2)
-
-          call random_number(z)
-          if (z.lt.sig_s/(sig_s+sig_pe+sig_pp)) then
-            
-            call sample_compton_scattering(hnum,f,cost,phi)
-            call random_number(z)
-            if (z.lt.f) then  !! scatter
-              nm(:)=comoving2lab_transform_n(p%n(:),vm,2)
-              nm=new_direction(nm,cost,phi)
-              hnum=f*hnum
-              Etotm=Etotm
-              p%hnu=comoving2lab_transform_E(hnum,nm,vm,1)
-              p%Etot=comoving2lab_transform_E(Etotm,nm,vm,1)
-              p%n=comoving2lab_transform_n(nm,vm,1)
-            else              !! absorb
-              isabs=.true.
-            endif
-          else
-            call random_number(z)
-            if (z.lt.sig_pe/(sig_pe+sig_pp)) then
-              isabs=.true.
-            else
-              call random_number(z)
-              q=mec2mev/hnum
-              if (z.lt.(0.5d0+q)) then
-                nm=random_unit_vec1(3)
-                hnum=mec2mev
-                Etotm=Etotm
-                p%hnu=comoving2lab_transform_E(hnum,nm,vm,1)
-                p%Etot=comoving2lab_transform_E(Etotm,nm,vm,1)
-                p%n=comoving2lab_transform_n(nm,vm,1)
-              else
-                isabs=.true.
-              endif
-            endif
-          endif
         endif
-            
+
       enddo
+
+      if (inmesh .and. p%Etot.gt.0.0d0) then
+        if (gamma_energy_done(p) .or. .not.intime) then
+          call deposit_gamma_energy(i,j,k,nt,p,p%Etot)
+          isabs=.true.
+        endif
+      endif
 
       return
       end subroutine track_gamma
