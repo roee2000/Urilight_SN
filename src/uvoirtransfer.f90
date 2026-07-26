@@ -122,7 +122,8 @@
         endif
       endif
 
-      if (.not. allocated(spect_bins_uvoir)) call build_spect_bins_uvoir(lmin,lmax,deltal,deltav,bin_type)
+      if (allocated(spect_bins_uvoir)) deallocate(spect_bins_uvoir,dspect_bins_uvoir)
+      call build_spect_bins_uvoir(lmin,lmax,deltal,deltav,bin_type)
 
       write(fout,nml=uvoir)
 

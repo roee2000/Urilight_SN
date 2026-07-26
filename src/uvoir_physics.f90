@@ -6,6 +6,7 @@
       Module Uvoir_Physics
       use physical_constants
       use atomic_physics
+      use general_functions , only : find_index1
       use globals , only : data_file , fout
       implicit none
 
@@ -118,7 +119,7 @@
       real(8) , intent(in) :: time,temp,nij(0:,:),partition(0:,:),spect_bins(:)
       real(8) , intent(out) :: alpha_abs(:),alpha_scat(:)
       integer , intent(in) :: fout
-      integer :: n,i,j,z,k1,k2,niso,nions,nwave,nbins,lambin
+      integer :: n,i,j,z,k1,k2,niso,nions,nwave,nbins,lambin,ierr
       real(16) :: nijk,nu,g,fij,kbt,en1,en2,eline,stimfac,sigtot,alpha,onexp,pa,ps
       real(8) :: dlam,lambda,ct,tausob,psob
       real(8) :: nop(0:max_ion_levels,max_atoms)
@@ -160,7 +161,12 @@
 
         lambin = line(n)%ibin
         lambda=line(n)%lambda
-       
+        if (lambin.lt.1) then
+          if (lambda.lt.spect_bins(1) .or. lambda.gt.spect_bins(nbins)) cycle
+          lambin=find_index1(lambda,spect_bins(:),ierr)
+          if (ierr.ne.0) cycle
+        endif
+
         z=line(n)%z
         j=line(n)%ion
         if (.not.activez(z)) cycle
