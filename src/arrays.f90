@@ -11,6 +11,7 @@
         real(8) :: r(3)=0.0d0
         real(8) :: n(3)=0.0d0
         real(8) :: Etot=0.0d0
+        real(8) :: E0=0.0d0
         real(8) :: hnu=0.0d0
         real(8) :: lam=0.0d0
         real(8) :: t=1.0d99

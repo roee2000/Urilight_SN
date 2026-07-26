@@ -6,6 +6,7 @@
       Module Uvoir_Physics
       use physical_constants
       use atomic_physics
+      use globals , only : data_file , fout
       implicit none
 
       real(8) , parameter :: bigexp=200.0d0
@@ -13,6 +14,18 @@
       real(8) , save :: mintemp=100.0d0
 
       contains
+
+      subroutine init_uvoir_physics
+      integer :: ino
+      namelist /uvoir_physics/ mintemp
+
+      open(unit=5,file=data_file)
+      read(5,nml=uvoir_physics,iostat=ino)
+      close(5)
+      if (ino == 0) write(fout,nml=uvoir_physics)
+
+      return
+      end subroutine init_uvoir_physics
 
       subroutine calc_planck_int(bp,fnorm,reslow,reshigh,wbins,temp)
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!A!!!!!!!!!!!!!!!!!!!!
