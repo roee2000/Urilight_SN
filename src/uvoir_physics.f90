@@ -6,6 +6,7 @@
       Module Uvoir_Physics
       use physical_constants
       use atomic_physics
+      use general_functions , only : find_index1
       use globals , only : data_file , fout
       implicit none
 
@@ -118,7 +119,7 @@
       real(8) , intent(in) :: time,temp,nij(0:,:),partition(0:,:),spect_bins(:)
       real(8) , intent(out) :: alpha_abs(:),alpha_scat(:)
       integer , intent(in) :: fout
-      integer :: n,i,j,z,k1,k2,niso,nions,nwave,nbins,lambin
+      integer :: n,i,j,z,k1,k2,niso,nions,nwave,nbins,lambin,ierr
       real(16) :: nijk,nu,g,fij,kbt,en1,en2,eline,stimfac,sigtot,alpha,onexp,pa,ps
       real(8) :: dlam,lambda,ct,tausob,psob
       real(8) :: nop(0:max_ion_levels,max_atoms)
@@ -160,6 +161,7 @@
       do n=1,nlines
 
         lambda=line(n)%lambda
+<<<<<<< HEAD
         if (line(n)%ibin.gt.0) then
           lambin=line(n)%ibin
         else
@@ -167,6 +169,12 @@
           do while (lambin.lt.nbins-1 .and. lambda.gt.spect_bins(lambin+1))
             lambin=lambin+1
           enddo
+=======
+        if (lambin.lt.1) then
+          if (lambda.lt.spect_bins(1) .or. lambda.gt.spect_bins(nbins)) cycle
+          lambin=find_index1(lambda,spect_bins(:),ierr)
+          if (ierr.ne.0) cycle
+>>>>>>> 8aa4c566353c17d7b52f0464517725aaffc53dcd
         endif
 
         z=line(n)%z
