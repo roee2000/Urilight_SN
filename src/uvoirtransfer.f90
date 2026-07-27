@@ -230,6 +230,12 @@
       character*20 :: namef
       real(8) :: frac(niso)
       real(8) :: sum_ions, fion(0:max_ion_levels)
+      integer :: nleak_l,nprob_l
+      logical , allocatable :: did_leak(:)
+      integer , allocatable :: iactive(:)
+      integer :: nact,ia,nphot_tot
+      real(8) , allocatable :: edep_t(:),esca_t(:),jnudnu_t(:),nujnudnu_t(:)
+      integer , allocatable :: ntracks_t(:)
 
       nprob=0
       nout=0
@@ -243,8 +249,10 @@
       !     first guess for temperature
       temp(:)=6.d4
       nelec(:)=0.0d0
+      allocate(did_leak(nphotons))
+      allocate(iactive(nphotons))
 
-      !!!!! Main loop (kept serial: no OpenMP here so 1-core and N-core give identical results)
+      !!!!! Main loop
       do nt=1,ntimes
         call write_timestamp_uvoir(nt)
         fineiter=.false.
@@ -375,53 +383,79 @@
           nsim=0
           nleak(nt)=0
           nprob(nt)=0
+          nleak_l=0
+          nprob_l=0
+          did_leak=.false.
           if (niter.eq.2) fineiter=.true.
 
-          !$omp parallel do schedule(dynamic) &
-          !$omp   private(p_old,inmesh,intime,isabs,isprob,idiag) &
-          !$omp   reduction(+:nsim,nout,ndirect,nscat)
-          do np=1,sum(ncreate(0:nt))
-
-            if (photon(np)%t.lt.times(nt+1) .and. photon(np)%active) then
-
-              p_old=photon(np)
-
-              nsim=nsim+1
-              idiag=.false.
-              call track_uvoir(photon(np),nt,inmesh,intime,isabs,isprob,idiag)
-
-              if (fineiter) then
-                if (isprob) then
-                  !$omp atomic
-                  nprob(nt)=nprob(nt)+1
-                  photon(np)%active=.false.
-                endif
-
-                if (.not.inmesh) then
-                  !$omp critical(leak_diag)
-                  call integrate_bolometric(photon(np),bolout,2)
-                  call diag_integrate_uvoir_bands(photon(np),spect_bins_uvoir(:),2)
-                  call write_to_spectrum(photon(np),spect_uvoir,spect_bins_uvoir,spect_type_uvoir)
-                  !$omp end critical(leak_diag)
-
-                  nout=nout+1
-                  !$omp atomic
-                  nleak(nt)=nleak(nt)+1
-                  photon(np)%active=.false.
-                  if (photon(np)%direct) then
-                    ndirect=ndirect+1
-                  else
-                    nscat=nscat+1
-                  endif
-                endif
-              else
-                photon(np)=p_old
-              endif
-
+          ! only track live packets (skip finished ones in the parallel loop)
+          nphot_tot=sum(ncreate(0:nt))
+          nact=0
+          do np=1,nphot_tot
+            if (photon(np)%active .and. photon(np)%t.lt.times(nt+1)) then
+              nact=nact+1
+              iactive(nact)=np
             endif
-
           enddo
-          !$omp end parallel do
+
+          !$omp parallel private(p_old,inmesh,intime,isabs,isprob,idiag,np,ia, &
+          !$omp   edep_t,esca_t,jnudnu_t,nujnudnu_t,ntracks_t) &
+          !$omp   reduction(+:nsim,nout,ndirect,nscat,nleak_l,nprob_l)
+          allocate(edep_t(nctot),esca_t(nctot),jnudnu_t(nctot),nujnudnu_t(nctot),ntracks_t(nctot))
+          edep_t=0.0d0; esca_t=0.0d0; jnudnu_t=0.0d0; nujnudnu_t=0.0d0; ntracks_t=0
+
+          !$omp do schedule(dynamic,1)
+          do ia=1,nact
+            np=iactive(ia)
+            p_old=photon(np)
+            nsim=nsim+1
+            idiag=.false.
+            call track_uvoir(photon(np),nt,inmesh,intime,isabs,isprob,idiag, &
+                 edep_t,esca_t,jnudnu_t,nujnudnu_t,ntracks_t)
+
+            if (fineiter) then
+              if (isprob) then
+                nprob_l=nprob_l+1
+                photon(np)%active=.false.
+              endif
+              if (.not.inmesh) then
+                did_leak(np)=.true.
+                nout=nout+1
+                nleak_l=nleak_l+1
+                photon(np)%active=.false.
+                if (photon(np)%direct) then
+                  ndirect=ndirect+1
+                else
+                  nscat=nscat+1
+                endif
+              endif
+            else
+              photon(np)=p_old
+            endif
+          enddo
+          !$omp end do
+
+          !$omp critical
+          edep=edep+edep_t
+          esca=esca+esca_t
+          jnudnu=jnudnu+jnudnu_t
+          nujnudnu=nujnudnu+nujnudnu_t
+          ntracks=ntracks+ntracks_t
+          !$omp end critical
+          deallocate(edep_t,esca_t,jnudnu_t,nujnudnu_t,ntracks_t)
+          !$omp end parallel
+          nleak(nt)=nleak_l
+          nprob(nt)=nprob_l
+          if (fineiter) then
+            do ia=1,nact
+              np=iactive(ia)
+              if (did_leak(np)) then
+                call integrate_bolometric(photon(np),bolout,2)
+                call diag_integrate_uvoir_bands(photon(np),spect_bins_uvoir(:),2)
+                call write_to_spectrum(photon(np),spect_uvoir,spect_bins_uvoir,spect_type_uvoir)
+              endif
+            enddo
+          endif
           edot_max=0.0d0
           do i=1,nctot
             vol=1.0d0/rhooft(rhov(i),teff(nt))
@@ -522,7 +556,7 @@
       integer :: ierr
       real(8) :: nu_eff, T_cell
 
-      call random_number(z)
+      call rand_number(z)
       new_uvoir%t=times(nt)*z+times(nt+1)*(1.0d0-z)
       new_uvoir%r=random_location(i,j,k,teff(nt))
       new_uvoir%n=random_unit_vec1(3)
@@ -547,11 +581,14 @@
       return
       end function new_uvoir
 
-      subroutine track_uvoir(p,nt,inmesh,intime,isabs,isprob,idiag)
+      subroutine track_uvoir(p,nt,inmesh,intime,isabs,isprob,idiag, &
+           edep_l,esca_l,jnudnu_l,nujnudnu_l,ntracks_l)
       integer , intent (in) :: nt
       type (epacket) , intent (inout) :: p
       logical , intent (out) :: inmesh,intime,isabs,isprob
       logical , intent (in) :: idiag
+      real(8) , intent (inout) :: edep_l(:),esca_l(:),jnudnu_l(:),nujnudnu_l(:)
+      integer , intent (inout) :: ntracks_l(:)
       integer :: n,i,j,k,i1,j1,k1,ierr,m,nout,m1,cell
       real(8) :: v(3),vm(3),nm(3),rhom,Etotm,rcut(3),tcut,hnum,z,rad,lamm
       real(8) :: q,f,cost,phi,depfac,cmfac
@@ -569,12 +606,16 @@
 
       call findijk(p%r,teff(nt),i,j,k)
 
-      !$omp atomic
-      ntracks(ind(i,j,k))=ntracks(ind(i,j,k))+1
+      ntracks_l(ind(i,j,k))=ntracks_l(ind(i,j,k))+1
 
       depfac=1.0d0/4.0d0/pi/dt(nt)
 
       do while (inmesh .and. intime .and. .not.isabs)
+        n=n+1
+        if (n.gt.10000000) then
+          isprob=.true.
+          exit
+        endif
 
         ds_time=(times(nt+1)-p%t)*clight
 
@@ -610,8 +651,12 @@
         endif
 
         alpha_tot=cmfac*(alpha_a+alpha_s)
+        if (.not.(alpha_tot.gt.0.0d0) .or. alpha_tot.ne.alpha_tot) then
+          isprob=.true.
+          exit
+        endif
 
-        call random_number(z)
+        call rand_number(z)
 
         ds_event=-log(z)/(alpha_tot)
 
@@ -623,14 +668,10 @@
 !       calc estimators for radiation energy density (Erad) and energey deposition (Edep)
 !       Note: estimators are calculated in comoving frame. As ds and p%Etot are defined
 !       in lab frame, an appropriate transformation is made by multypling by cmfac
-        !$omp atomic
-        jnudnu(cell)=jnudnu(cell)+depfac*rhom*p%Etot*ds*cmfac**2.0d0
-        !$omp atomic
-        nujnudnu(cell)=nujnudnu(cell)+depfac*rhom*(p%hnu/planck)*p%Etot*ds*cmfac**3.0d0
-        !$omp atomic
-        edep(cell)=edep(cell)+depfac*rhom*alpha_a*p%Etot*ds*cmfac**2.0d0
-        !$omp atomic
-        esca(cell)=esca(cell)+depfac*rhom*alpha_s*p%Etot*ds*cmfac**2.0d0
+        jnudnu_l(cell)=jnudnu_l(cell)+depfac*rhom*p%Etot*ds*cmfac**2.0d0
+        nujnudnu_l(cell)=nujnudnu_l(cell)+depfac*rhom*(p%hnu/planck)*p%Etot*ds*cmfac**3.0d0
+        edep_l(cell)=edep_l(cell)+depfac*rhom*alpha_a*p%Etot*ds*cmfac**2.0d0
+        esca_l(cell)=esca_l(cell)+depfac*rhom*alpha_s*p%Etot*ds*cmfac**2.0d0
 
         if (ds.eq.ds_time) then
           intime=.false.
@@ -641,14 +682,13 @@
           if (i.gt.nc1 .or. j.gt.nc2 .or. k.gt.nc3) inmesh=.false.
           if (i.lt.1   .or. j.lt.1   .or. k.lt.1)   inmesh=.false.
           if (inmesh) then
-            !$omp atomic
-            ntracks(ind(i,j,k))=ntracks(ind(i,j,k))+1
+            ntracks_l(ind(i,j,k))=ntracks_l(ind(i,j,k))+1
           endif
         elseif (ds_event.eq.ds) then
           vm=vofr(p%r,teff(nt))
           hnum=comoving2lab_transform_E(p%hnu,p%n,vm,2)
           Etotm=comoving2lab_transform_E(p%Etot,p%n,vm,2)
-          call random_number(z)
+          call rand_number(z)
           if (z.lt.alpha_s/(alpha_s+alpha_a)) then !! scattering
             nm(:)=random_unit_vec1(3)
             Etotm=Etotm
@@ -670,7 +710,6 @@
           p%Etot=comoving2lab_transform_E(Etotm,nm,vm,1)
           p%n=comoving2lab_transform_n(nm,vm,1)
         endif
-      n=n+1      
       enddo
 
       return
@@ -684,7 +723,7 @@
       
       i=choose_from_probability_distribution(eta)
 
-      call random_number(z)
+      call rand_number(z)
       
       photon_emission_LTE=spect_bins(i)*z+spect_bins(i+1)*(1.0d0-z)
 

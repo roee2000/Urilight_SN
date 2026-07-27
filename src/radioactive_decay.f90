@@ -128,17 +128,17 @@
       
       decay_type=1 !! set default decay to Ni56
 
-      call random_number(zrand(1))
+      call rand_number(zrand(1))
       if (zrand(1).gt.Ni56EtotFrac) decay_type=2 !! decay is Co56
 
       if (decay_type.eq.1) then 
-         call random_number(zrand(1))
+         call rand_number(zrand(1))
          ti=-Ni56tau*log(zrand(1))
          i=choose_from_probability_distribution(Ni56(1:Ni56lines)%energy_frac)
          energy=Ni56(i)%energy
          NiCo=1
       else
-         call random_number(zrand)
+         call rand_number(zrand)
          ti=-Ni56tau*log(zrand(1))-Co56tau*log(zrand(2))
          i=choose_from_probability_distribution(Co56(1:Co56lines)%energy_frac)
          energy=Co56(i)%energy

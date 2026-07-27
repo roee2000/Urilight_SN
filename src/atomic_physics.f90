@@ -494,6 +494,7 @@
       j=0
       facread=0.0d0
       readall=.false.
+      i1=1  ! running spect bin (lines are lambda-sorted)
       do while (.not.readall)
         if (lambda(1).lt.lambda(2)) then
           i=1
@@ -508,8 +509,8 @@
 
         lvl%energy=elo(i)
         lvl%g=glo(i)
-        i1=find_level(lvl,atom(z(i))%ion(ion(i))%level(:),atom(z(i))%ion(ion(i))%nlevels)
-        line(j)%l1=i1
+        i2=find_level(lvl,atom(z(i))%ion(ion(i))%level(:),atom(z(i))%ion(ion(i))%nlevels)
+        line(j)%l1=i2
 
 !       lvl%energy=ehi(i)
 !       lvl%g=ghi(i)
@@ -517,6 +518,21 @@
 !       line(j)%l2=i2
 
         line(j)%fij=fij(i)
+        ! wavelength bin for opacity (Kurucz never set this; NIST does)
+        if (allocated(spect_bins_uvoir)) then
+          if (line(j)%lambda.ge.spect_bins_uvoir(1) .and. &
+              line(j)%lambda.le.spect_bins_uvoir(size(spect_bins_uvoir))) then
+            do while (i1.lt.size(spect_bins_uvoir)-1 .and. &
+                      line(j)%lambda.gt.spect_bins_uvoir(i1+1))
+              i1=i1+1
+            enddo
+            line(j)%ibin=i1
+          else
+            line(j)%ibin=0
+          endif
+        else
+          line(j)%ibin=0
+        endif
         if (i.eq.1) call get_kurucz_23_next_line(11,nloc(1),zlist1(:),z(1),ion(1),&
                     lambda(1),fij(1),elo(1),glo(1),ehi(1),ghi(1),eof)
         if (i.eq.2) call get_kurucz_1_next_line(12,nloc(2),zlist2(:),&

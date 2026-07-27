@@ -456,7 +456,7 @@
       real(8) :: random_location(3)
       real(8) :: z(3),v
 
-      call random_number(z)
+      call rand_number(z)
 
       if (dim.eq.1) then
 

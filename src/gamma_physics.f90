@@ -6,6 +6,7 @@
 
        module Gamma_Physics
        use physical_constants
+       use RandomNumbers
        implicit none
 
 
@@ -54,7 +55,7 @@
        accept=.false.
        do while (.not. accept) 
 
-         call random_number(z(:))
+         call rand_number(z(:))
          alpha1=log(1./x0)
          alpha2=(1.0d0-x0**2.0d0)/2.0d0
          if (z(1).lt.alpha1/(alpha1+alpha2)) then
@@ -71,7 +72,7 @@
 
        cost=1.0d0-f
       
-       call random_number(zp)
+       call rand_number(zp)
 
        phi=2.0d0*pi*zp
 

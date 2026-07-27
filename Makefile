@@ -1,6 +1,6 @@
 # ---- Compiler settings ---------
 COMPILER=gfortran
-OPTIMIZATION=-g -fcheck=bounds -fcheck=mem -cpp -ffree-line-length-none -fno-range-check -fopenmp 
+OPTIMIZATION=-g -fcheck=mem -cpp -ffree-line-length-none -fno-range-check -fopenmp 
 # -pg: add time profiling
 LDFLAGS=-isysroot /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk -fopenmp
 
@@ -12,6 +12,13 @@ EXE=$(BUILD_DIR)/UriLight.exe
 slurm_partition = cluster
 slurm_account = rcl
 slurm_ncores = 4
+
+# PBS configuration (any free node, like opacity tables)
+pbs_node = 1
+pbs_ppn = 4
+pbs_mem = 300gb
+pbs_walltime = 24:00:00
+pbs_jobname = urilight_run
 
 # Create build directory if it doesn't exist
 $(shell mkdir -p $(BUILD_DIR))
@@ -63,7 +70,7 @@ $(BUILD_DIR)/transport_general_functions.o: src/transport_general_functions.f90 
 $(BUILD_DIR)/diagnostics.o: src/diagnostics.f90 $(BUILD_DIR)/mesh.o $(BUILD_DIR)/general_functions.o $(BUILD_DIR)/arrays.o $(BUILD_DIR)/globals.o
 	$(COMPILER) $(OPTIMIZATION) $(LDFLAGS) -J$(BUILD_DIR) -c $< -o $@
 
-$(BUILD_DIR)/gamma_physics.o: src/gamma_physics.f90 $(BUILD_DIR)/physical_constants.o
+$(BUILD_DIR)/gamma_physics.o: src/gamma_physics.f90 $(BUILD_DIR)/physical_constants.o $(BUILD_DIR)/randomnumbers.o
 	$(COMPILER) $(OPTIMIZATION) $(LDFLAGS) -J$(BUILD_DIR) -c $< -o $@
 
 $(BUILD_DIR)/uvoir_physics.o: src/uvoir_physics.f90 $(BUILD_DIR)/physical_constants.o $(BUILD_DIR)/atomic_physics.o
@@ -86,9 +93,13 @@ clean:
 
 rclean:
 	rm -fr output
+	rm -f pbs-urilight.out pbs-urilight.err qsub_out
 
 run:
-	$(MAKE) rclean;
+	$(MAKE) rclean
+	./$(EXE)
+
+run-only:
 	./$(EXE)
 
 srun:
@@ -102,6 +113,33 @@ srun:
 		--wrap="export OMP_NUM_THREADS=$(slurm_ncores) && make -C $(PWD) run" > sbatch_out ;\
 	cat sbatch_out
 
+prun:
+	$(MAKE) rclean
+	@echo '#!/bin/bash' > .urilight_run.pbs
+	@echo '#PBS -N $(pbs_jobname)' >> .urilight_run.pbs
+	@echo '#PBS -l nodes=$(pbs_node):ppn=$(pbs_ppn),mem=$(pbs_mem)' >> .urilight_run.pbs
+	@echo '#PBS -l walltime=$(pbs_walltime)' >> .urilight_run.pbs
+	@echo '#PBS -S /bin/bash' >> .urilight_run.pbs
+	@echo '#PBS -j oe' >> .urilight_run.pbs
+	@echo '#PBS -o /dev/null' >> .urilight_run.pbs
+	@echo '#PBS -e /dev/null' >> .urilight_run.pbs
+	@echo 'cd $(CURDIR)' >> .urilight_run.pbs
+	@echo 'OUT="$(CURDIR)/pbs-urilight.out"' >> .urilight_run.pbs
+	@echo 'ERR="$(CURDIR)/pbs-urilight.err"' >> .urilight_run.pbs
+	@echo ': > "$$OUT"; : > "$$ERR"' >> .urilight_run.pbs
+	@echo 'exec >> "$$OUT" 2>> "$$ERR"' >> .urilight_run.pbs
+	@echo 'echo "=== job start $$(date) ==="' >> .urilight_run.pbs
+	@echo 'module load gcc/gcc-fortran-12.2.0' >> .urilight_run.pbs
+	@echo 'export OMP_NUM_THREADS=$(pbs_ppn)' >> .urilight_run.pbs
+	@echo 'export OMP_PROC_BIND=spread' >> .urilight_run.pbs
+	@echo 'export OMP_PLACES=cores' >> .urilight_run.pbs
+	@echo 'export OMP_WAIT_POLICY=passive' >> .urilight_run.pbs
+	@echo 'export GFORTRAN_UNBUFFERED_ALL=YES' >> .urilight_run.pbs
+	@echo 'stdbuf -oL -eL make run-only' >> .urilight_run.pbs
+	@echo 'echo "=== job end $$(date) ==="' >> .urilight_run.pbs
+	qsub .urilight_run.pbs > qsub_out
+	cat qsub_out
+
 stop:
 	@jobname="urilight_$(PWD)"; \
 	jobids=$$(squeue -u "$$USER" -h -o "%A %j" | awk -v name="$$jobname" '$$2==name {print $$1}'); \
@@ -112,5 +150,14 @@ stop:
 		echo "No matching running jobs found for $$jobname"; \
 	fi
 
-.PHONY: clean all rclean run srun stop
+pstop:
+	@jobids=$$(qstat -u "$$USER" 2>/dev/null | awk '$$4=="$(pbs_jobname)" {print $$1}'); \
+	if [ -n "$$jobids" ]; then \
+		echo "Stopping job(s): $$jobids"; \
+		echo "$$jobids" | xargs qdel; \
+	else \
+		echo "No matching jobs for $(pbs_jobname)"; \
+	fi
+
+.PHONY: clean all rclean run run-only srun prun stop pstop
 

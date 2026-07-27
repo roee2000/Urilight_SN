@@ -156,11 +156,19 @@
       sigtot=pi*electron_charge**2.0d0/(electron_mass*clight)
       ct=clight*time
 
+      lambin=1
       do n=1,nlines
 
-        lambin = line(n)%ibin
         lambda=line(n)%lambda
-       
+        if (line(n)%ibin.gt.0) then
+          lambin=line(n)%ibin
+        else
+          if (lambda.lt.spect_bins(1) .or. lambda.gt.spect_bins(nbins)) cycle
+          do while (lambin.lt.nbins-1 .and. lambda.gt.spect_bins(lambin+1))
+            lambin=lambin+1
+          enddo
+        endif
+
         z=line(n)%z
         j=line(n)%ion
         if (.not.activez(z)) cycle

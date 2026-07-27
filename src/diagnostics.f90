@@ -104,6 +104,7 @@
       
        delta=(bins(i1+1)-bins(i1))*(times(i2+1)-times(i2))
 
+       !$omp atomic
        spect(i1,i2)=spect(i1,i2)+p%Etot/delta
 
 !      if (p%direct) then
@@ -134,6 +135,7 @@
        if (ierr.gt.0) return
       
        delta=(times(i1+1)-times(i1))
+       !$omp atomic
        vec(i1)=vec(i1)+p%Etot/delta
 
        return
@@ -162,6 +164,7 @@
 
        do nb=1,size(uvoir_band_names)
          phi=spectroscopic_filter(p%lam,uvoir_band_names(nb),phin)
+         !$omp atomic
          uvoir_f(i1,nb)=uvoir_f(i1,nb)+p%Etot/delta*phi
        enddo
       
