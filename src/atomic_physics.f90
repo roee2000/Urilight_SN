@@ -966,12 +966,25 @@
       data ni(:,68)/166,166/
       data ni(:,69)/169,169/
       data ni(:,70)/174,174/
+!     Z=71--82 (Lu through Pb) for block3 / reps8 mixes
+      data ni(:,71)/175,175/
+      data ni(:,72)/178,178/
+      data ni(:,73)/181,181/
+      data ni(:,74)/184,184/
+      data ni(:,75)/186,186/
+      data ni(:,76)/190,190/
+      data ni(:,77)/192,192/
+      data ni(:,78)/195,195/
+      data ni(:,79)/197,197/
+      data ni(:,80)/202,202/
+      data ni(:,81)/205,205/
+      data ni(:,82)/207,207/
                  
-      allocate(indiso(max_atoms,200))
+      allocate(indiso(max_atoms,300))
       allocate(iso(max_isotops))
       indiso=-1
       n=0
-      do i=1,70
+      do i=1,82
         do j=ni(1,i),ni(2,i)
           n=n+1
           iso(n)%z=i
