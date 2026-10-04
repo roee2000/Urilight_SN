@@ -295,6 +295,7 @@
               kR_scat = get_gray_opacity_rosseland_scat(mat_id, T_eV_val, rho_cell, t_days_val)
               kP_abs = get_gray_opacity_planck_abs(mat_id, T_eV_val, rho_cell, t_days_val)
               f_abs_gray(i) = get_gray_opacity_f_abs(mat_id, T_eV_val, rho_cell, t_days_val)
+              zavg(i) = get_gray_opacity_zavg(mat_id, T_eV_val, rho_cell, t_days_val)
               
               ! Convert to opacity coefficients [1/cm] = kappa [cm^2/g] * rho [g/cm^3]
               alpha_abs_gray(i) = kR_abs * rho_cell
@@ -308,6 +309,7 @@
                 write(fout,*) '  T_eV=', T_eV_val, ' rho=', rho_cell, ' t_days=', t_days_val
                 write(fout,*) '  kappa_R_abs=', kR_abs, ' kappa_R_scat=', kR_scat, ' kappa_P_abs=', kP_abs
                 write(fout,*) '  alpha_abs_gray=', alpha_abs_gray(i), ' alpha_scat_gray=', alpha_scat_gray(i)
+                write(fout,*) '  zavg=', zavg(i)
                 !$omp end critical
               endif
               

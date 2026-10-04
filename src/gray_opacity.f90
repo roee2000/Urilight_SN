@@ -17,6 +17,7 @@ module GrayOpacity
     real(8), allocatable :: kappa_P_abs(:,:,:)
     real(8), allocatable :: kappa_R_tot(:,:,:)
     real(8), allocatable :: f_abs(:,:,:)
+    real(8), allocatable :: zavg(:,:,:)
     logical :: loaded = .false.
   end type gray_opacity_table_type
 
@@ -32,7 +33,7 @@ module GrayOpacity
     integer :: iunit, line_idx, j, n, iostat, nlines
     integer :: i_temp, i_rho, i_time
     character(200) :: line
-    real(8) :: T_val, rho_val, t_days_val, kR_tot, f_abs_val, kP_abs, kP_tot_dummy
+    real(8) :: T_val, rho_val, t_days_val, kR_tot, f_abs_val, kP_abs, kP_tot_dummy, zavg_val
     real(8), allocatable :: T_grid(:), rho_grid(:), time_grid(:)
     integer :: nT, nrho, nt_time
     logical :: T_found, rho_found, t_time_found
@@ -77,8 +78,8 @@ module GrayOpacity
     nt_time = 0
 
     do line_idx = 1, nlines
-      ! Columns: T, rho, t, kappa_R_tot, f_abs, kappa_P_abs, kappa_P_tot
-      read(iunit, *, iostat=iostat) T_val, rho_val, t_days_val, kR_tot, f_abs_val, kP_abs, kP_tot_dummy
+      ! Columns: T, rho, t, kappa_R_tot, f_abs, kappa_P_abs, kappa_P_tot, zavg
+      read(iunit, *, iostat=iostat) T_val, rho_val, t_days_val, kR_tot, f_abs_val, kP_abs, kP_tot_dummy, zavg_val
       if (iostat /= 0) exit
 
       ! Check if T is new
@@ -136,6 +137,8 @@ module GrayOpacity
     allocate(gray_tables(material_id)%kappa_P_abs(nT, nrho, nt_time))
     allocate(gray_tables(material_id)%kappa_R_tot(nT, nrho, nt_time))
     allocate(gray_tables(material_id)%f_abs(nT, nrho, nt_time))
+    allocate(gray_tables(material_id)%zavg(nT, nrho, nt_time))
+    gray_tables(material_id)%zavg = 0.0d0
 
     gray_tables(material_id)%T_vals = T_grid(1:nT)
     gray_tables(material_id)%rho_vals = rho_grid(1:nrho)
@@ -153,8 +156,8 @@ module GrayOpacity
     enddo
 
     do n = 1, nlines
-      ! Columns: T, rho, t, kappa_R_tot, f_abs, kappa_P_abs, kappa_P_tot
-      read(iunit, *, iostat=iostat) T_val, rho_val, t_days_val, kR_tot, f_abs_val, kP_abs, kP_tot_dummy
+      ! Columns: T, rho, t, kappa_R_tot, f_abs, kappa_P_abs, kappa_P_tot, zavg
+      read(iunit, *, iostat=iostat) T_val, rho_val, t_days_val, kR_tot, f_abs_val, kP_abs, kP_tot_dummy, zavg_val
       if (iostat /= 0) exit
 
       ! Find grid indices - use exact match
@@ -166,6 +169,7 @@ module GrayOpacity
         gray_tables(material_id)%kappa_P_abs(i_temp, i_rho, i_time) = kP_abs
         gray_tables(material_id)%kappa_R_tot(i_temp, i_rho, i_time) = kR_tot
         gray_tables(material_id)%f_abs(i_temp, i_rho, i_time) = f_abs_val
+        gray_tables(material_id)%zavg(i_temp, i_rho, i_time) = zavg_val
       else
         write(fout,*) 'WARNING: Could not find grid indices for T=', T_val, ' rho=', rho_val, ' t=', t_days_val
         write(fout,*) '  i_temp=', i_temp, ' i_rho=', i_rho, ' i_time=', i_time
@@ -221,6 +225,13 @@ module GrayOpacity
     real(8) :: f_abs
     f_abs = interpolate_table(material_id, T_eV, rho, t_days, 5)
   end function get_gray_opacity_f_abs
+
+  function get_gray_opacity_zavg(material_id, T_eV, rho, t_days) result(zavg)
+    integer, intent(in) :: material_id
+    real(8), intent(in) :: T_eV, rho, t_days
+    real(8) :: zavg
+    zavg = interpolate_table(material_id, T_eV, rho, t_days, 6)
+  end function get_gray_opacity_zavg
 
   function interpolate_table(material_id, T_eV, rho, t_days, opac_type) result(kappa)
     integer, intent(in) :: material_id, opac_type
@@ -291,6 +302,15 @@ module GrayOpacity
       kappa_101 = gray_tables(material_id)%f_abs(iT+1, irho, it_idx+1)
       kappa_110 = gray_tables(material_id)%f_abs(iT+1, irho+1, it_idx)
       kappa_111 = gray_tables(material_id)%f_abs(iT+1, irho+1, it_idx+1)
+    case(6)  ! zavg (mean ionization)
+      kappa_000 = gray_tables(material_id)%zavg(iT, irho, it_idx)
+      kappa_001 = gray_tables(material_id)%zavg(iT, irho, it_idx+1)
+      kappa_010 = gray_tables(material_id)%zavg(iT, irho+1, it_idx)
+      kappa_011 = gray_tables(material_id)%zavg(iT, irho+1, it_idx+1)
+      kappa_100 = gray_tables(material_id)%zavg(iT+1, irho, it_idx)
+      kappa_101 = gray_tables(material_id)%zavg(iT+1, irho, it_idx+1)
+      kappa_110 = gray_tables(material_id)%zavg(iT+1, irho+1, it_idx)
+      kappa_111 = gray_tables(material_id)%zavg(iT+1, irho+1, it_idx+1)
     end select
 
     ! Trilinear interpolation

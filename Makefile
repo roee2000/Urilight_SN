@@ -15,8 +15,8 @@ slurm_ncores = 4
 
 # PBS configuration (any free node, like opacity tables)
 pbs_node = 1
-pbs_ppn = 4
-pbs_mem = 300gb
+pbs_ppn = 96
+pbs_mem = 450gb
 pbs_walltime = 24:00:00
 pbs_jobname = urilight_run
 
@@ -93,7 +93,7 @@ clean:
 
 rclean:
 	rm -fr output
-	rm -f pbs-urilight.out pbs-urilight.err qsub_out
+	rm -f pbs-urilight.out pbs-urilight.err qsub_out fort.*
 
 run:
 	$(MAKE) rclean

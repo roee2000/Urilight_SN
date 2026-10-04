@@ -20,7 +20,7 @@
       real(8), intent(in) :: spect_bins(:)
       integer :: z, ion, ZZ, LL, eof, nlines_tot, j, iu
       real(16) :: EN
-      character(256) :: ionfile, fgf, flv
+      character(256) :: ionfile, fgf, flv, ionline
       character(2) :: sym
       character(4) :: roman
 
@@ -30,8 +30,12 @@
       open(newunit=iu, file=ionfile, status='old', action='read', iostat=eof)
       if (eof.eq.0) then
         do
-          read(iu, *, iostat=eof) ZZ, LL, EN
+          read(iu, '(A)', iostat=eof) ionline
           if (eof.ne.0) exit
+          if (len_trim(ionline).eq.0) cycle
+          if (ionline(1:1).eq.'#') cycle
+          read(ionline, *, iostat=eof) ZZ, LL, EN
+          if (eof.ne.0) cycle
           if (ZZ.le.max_atoms .and. LL.le.max_ion_levels) &
             atom(ZZ)%ionization_energy(LL) = EN * electron_volt
         enddo
