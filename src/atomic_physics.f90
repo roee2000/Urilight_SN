@@ -5,7 +5,7 @@
 ! SUBROUTINES FOR READING THE ATOMIC DATA (LINES LISTS) AND FOR
 ! CALCULATING IONIZATION WITH SAHA EQUATION
       Module Atomic_Physics
-      use globals , only : niso , fout , data_file , max_isotops
+      use globals , only : niso , fout , data_file , max_isotops , use_gray_opacity
       use arrays , only : iso , indiso , spect_bins_uvoir
       use physical_constants
       use general_functions
@@ -52,6 +52,15 @@
       max_ion_with_data(1:max_atoms)=max_ion_levels
 
       write(fout,nml=atomic_physics)
+
+!     Gray opacity uses the precomputed table. Lines, levels, and partition
+!     functions are only needed by Saha and expansion opacity.
+!     use_gray_opacity is set in init_uvoir_spect_bins, which runs first.
+      if (use_gray_opacity) then
+        nlines=0
+        write(fout,*) 'Gray opacity: not reading line or level data'
+        return
+      endif
 
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 !!    Atomic data: Kurucz (AtomicDataBase) or NIST (NistDB)              !!

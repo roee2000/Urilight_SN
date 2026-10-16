@@ -486,7 +486,7 @@
             tcolor(i)=color_temperature(jnudnu(i),nujnudnu(i))
             niter_tp=-1
             conv_tp=-1.0d0
-            if (edot.gt.1.d-8*edot_max) then
+            if (edot.gt.1.d-15*edot_max) then
               if (use_gray_opacity) then
                 sigma_sb = 5.670374419e-5
                 alpha_planck = kappa_planck_gray(i) * rho_actual
