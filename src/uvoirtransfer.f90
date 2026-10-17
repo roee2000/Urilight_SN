@@ -23,7 +23,7 @@
       integer , save :: nphotons
 
       integer , allocatable , save :: Ncreate(:) , Nleak(:) , Nprob(:)
-      real(8) , allocatable , save :: alpha_abs_gray(:), alpha_scat_gray(:), kappa_planck_gray(:), f_abs_gray(:)
+      real(8) , allocatable , save :: alpha_R_gray(:), kappa_planck_gray(:)
 
       ! Single-point / diagnostic overrides (read from /uvoir/ namelist)
       real(8) , save :: override_T_eV = -1.0d0   ! if >0: force temperature (eV) for Saha/opacity
@@ -140,7 +140,7 @@
       allocate (spect_uvoir(nwavelengths,ntimes))
       allocate (bp(nwavelengths,nctot))
       if (use_gray_opacity) then
-        allocate (alpha_abs_gray(nctot), alpha_scat_gray(nctot), kappa_planck_gray(nctot), f_abs_gray(nctot))
+        allocate (alpha_R_gray(nctot), kappa_planck_gray(nctot))
       endif
       ncreate=0
       nleak=0
@@ -224,7 +224,7 @@
       real(8) :: conv_tp
       real(8) :: ne,Etotm,vm(3),conv,converge,converge1,totatoms,&
                  vol,fnorm,edot,edot_max,reslow,reshigh,kappa,ein,rho_actual
-      real(8) :: alpha_planck, sigma_sb
+      real(8) :: alpha_planck
       real(8) :: T_eV_val, t_days_val, kR_abs, kR_scat, kP_abs, rho_cell, vol_inv
       integer :: mat_id
       logical :: idiag
@@ -258,6 +258,8 @@
         call write_timestamp_uvoir(nt)
         fineiter=.false.
         niter=0
+        converge=huge(1.0d0)
+        converge1=huge(1.0d0)
         write(fout,*  ) '----------------------------------------------'
         write(fout,600) nt,times(nt)/day,times(nt+1)/day
 
@@ -294,12 +296,10 @@
               kR_abs = get_gray_opacity_rosseland_abs(mat_id, T_eV_val, rho_cell, t_days_val)
               kR_scat = get_gray_opacity_rosseland_scat(mat_id, T_eV_val, rho_cell, t_days_val)
               kP_abs = get_gray_opacity_planck_abs(mat_id, T_eV_val, rho_cell, t_days_val)
-              f_abs_gray(i) = get_gray_opacity_f_abs(mat_id, T_eV_val, rho_cell, t_days_val)
               zavg(i) = get_gray_opacity_zavg(mat_id, T_eV_val, rho_cell, t_days_val)
               
               ! Convert to opacity coefficients [1/cm] = kappa [cm^2/g] * rho [g/cm^3]
-              alpha_abs_gray(i) = kR_abs * rho_cell
-              alpha_scat_gray(i) = kR_scat * rho_cell
+              alpha_R_gray(i) = (kR_abs + kR_scat) * rho_cell
               kappa_planck_gray(i) = kP_abs
               
               ! Diagnostics for first iteration, first cell
@@ -308,7 +308,7 @@
                 write(fout,*) 'Gray opacity diagnostics (cell 1):'
                 write(fout,*) '  T_eV=', T_eV_val, ' rho=', rho_cell, ' t_days=', t_days_val
                 write(fout,*) '  kappa_R_abs=', kR_abs, ' kappa_R_scat=', kR_scat, ' kappa_P_abs=', kP_abs
-                write(fout,*) '  alpha_abs_gray=', alpha_abs_gray(i), ' alpha_scat_gray=', alpha_scat_gray(i)
+                write(fout,*) '  alpha_R=', alpha_R_gray(i), ' alpha_P=', kP_abs * rho_cell
                 write(fout,*) '  zavg=', zavg(i)
                 !$omp end critical
               endif
@@ -389,7 +389,13 @@
           nleak_l=0
           nprob_l=0
           did_leak=.false.
-          if (niter.eq.2) fineiter=.true.
+          ! Commit packets only after the previous temperature update converged.
+          ! Allow Monte Carlo noise, with a 5% track-weighted temperature limit.
+          if (niter.gt.1 .and. converge.le.1.0d0 .and. converge1.le.0.05d0) fineiter=.true.
+          if (niter.ge.30 .and. .not.fineiter) then
+            write(fout,*) 'WARNING: temperature iteration limit reached; residuals=',converge,converge1
+            fineiter=.true.
+          endif
 
           ! only track live packets (skip finished ones in the parallel loop)
           nphot_tot=sum(ncreate(0:nt))
@@ -470,7 +476,8 @@
           converge1=0.0d0
           do i=1,nctot
             vol=1.0d0/rhooft(rhov(i),teff(nt))
-            rho_actual = rhooft(rhov(i),teff(nt))
+            ! rhooft is inverse cell volume, not mass density.
+            rho_actual = mass(i) / vol
 
             do nb=1,nuvoir_bands
                emissivity(nb,i)=mean_emissivity(alpha_abs_exp(:,i)+alpha_ff(:,i),&
@@ -488,10 +495,11 @@
             conv_tp=-1.0d0
             if (edot.gt.1.d-15*edot_max) then
               if (use_gray_opacity) then
-                sigma_sb = 5.670374419e-5
                 alpha_planck = kappa_planck_gray(i) * rho_actual
                 if (alpha_planck > 1.d-30) then
-                  tplasma(i) = (edot / (4.0d0 * sigma_sb * alpha_planck))**(0.25d0)
+                  ! edot is heating per volume per steradian: alpha_P B(T) = edot.
+                  ! kappa_P is updated with temperature by the outer iteration.
+                  tplasma(i) = max(mintemp,(pi * edot / (sigma_sb * alpha_planck))**0.25d0)
                 else
                   tplasma(i) = trad(i)
                 endif
@@ -513,7 +521,7 @@
               conv/(2.0d0/sqrt(ntracks(i)+eps)),ntracks(i),niter_tp,conv_tp
             write(fout,502) kappa_abs(i),kappa_scat(i)
           enddo
-          converge1=converge1/dble(sum(ntracks(:)))
+          converge1=converge1/max(1.0d0,dble(sum(ntracks(:))))
           write(fout,503) converge,converge1
 
         enddo
@@ -596,8 +604,7 @@
       real(8) :: v(3),vm(3),nm(3),rhom,Etotm,rcut(3),tcut,hnum,z,rad,lamm
       real(8) :: q,f,cost,phi,depfac,cmfac
       real(8) :: ds,ds_time,ds_edge,ds_event
-      real(8) :: alpha_a,alpha_s,alpha_tot
-      real(8) :: nu_eff_gray, T_cell_gray
+      real(8) :: alpha_a,alpha_s,alpha_tot,alpha_R,alpha_P
 
       inmesh=.true.
       intime=.true.
@@ -638,9 +645,10 @@
         cmfac=(Etotm/p%Etot)
 
         if (use_gray_opacity) then
-          ! Gray opacity mode: frequency-independent
-          alpha_a = alpha_abs_gray(cell)
-          alpha_s = alpha_scat_gray(cell)
+          ! Grey coefficients [1/cm]: Rosseland transport, Planck absorption.
+          alpha_R = alpha_R_gray(cell)
+          alpha_P = kappa_planck_gray(cell) * mass(cell) * rhom
+          alpha_tot=cmfac*alpha_R
         else
           ! Frequency-dependent opacity mode
           m=find_index1(lamm,spect_bins_uvoir(:),ierr)
@@ -651,9 +659,9 @@
 
           alpha_s=alpha_scat(cell)+alpha_scat_exp(m,cell)
           alpha_a=alpha_ff(m,cell)+alpha_abs_exp(m,cell)
+          alpha_tot=cmfac*(alpha_a+alpha_s)
         endif
 
-        alpha_tot=cmfac*(alpha_a+alpha_s)
         if (.not.(alpha_tot.gt.0.0d0) .or. alpha_tot.ne.alpha_tot) then
           isprob=.true.
           exit
@@ -673,8 +681,12 @@
 !       in lab frame, an appropriate transformation is made by multypling by cmfac
         jnudnu_l(cell)=jnudnu_l(cell)+depfac*rhom*p%Etot*ds*cmfac**2.0d0
         nujnudnu_l(cell)=nujnudnu_l(cell)+depfac*rhom*(p%hnu/planck)*p%Etot*ds*cmfac**3.0d0
-        edep_l(cell)=edep_l(cell)+depfac*rhom*alpha_a*p%Etot*ds*cmfac**2.0d0
-        esca_l(cell)=esca_l(cell)+depfac*rhom*alpha_s*p%Etot*ds*cmfac**2.0d0
+        if (use_gray_opacity) then
+          edep_l(cell)=edep_l(cell)+depfac*rhom*alpha_P*p%Etot*ds*cmfac**2.0d0
+        else
+          edep_l(cell)=edep_l(cell)+depfac*rhom*alpha_a*p%Etot*ds*cmfac**2.0d0
+          esca_l(cell)=esca_l(cell)+depfac*rhom*alpha_s*p%Etot*ds*cmfac**2.0d0
+        endif
 
         if (ds.eq.ds_time) then
           intime=.false.
@@ -691,22 +703,19 @@
           vm=vofr(p%r,teff(nt))
           hnum=comoving2lab_transform_E(p%hnu,p%n,vm,2)
           Etotm=comoving2lab_transform_E(p%Etot,p%n,vm,2)
-          call rand_number(z)
-          if (z.lt.alpha_s/(alpha_s+alpha_a)) then !! scattering
+          if (use_gray_opacity) then
+            ! Effective transport event: isotropic, coherent in the comoving frame.
+            ! Thermal coupling is estimated continuously along the path above.
             nm(:)=random_unit_vec1(3)
-            Etotm=Etotm
-          else                                     !! absorption and reemission`
-            nm(:)=random_unit_vec1(3)
-            Etotm=Etotm
-            if (use_gray_opacity) then
-              ! Gray mode: use effective frequency
-              T_cell_gray = temp(cell)
-              nu_eff_gray = 3.83d0 * kboltz * T_cell_gray / planck
-              lamm = clight / nu_eff_gray
-            else
+          else
+            call rand_number(z)
+            if (z.lt.alpha_s/(alpha_s+alpha_a)) then !! scattering
+              nm(:)=random_unit_vec1(3)
+            else                                   !! absorption and reemission
+              nm(:)=random_unit_vec1(3)
               lamm=photon_emission_LTE(emissivity(:,ind(i,j,k)),spect_bins_uvoir(:))
+              hnum=lam2hnu(lamm)
             endif
-            hnum=lam2hnu(lamm)
           endif
           p%hnu=comoving2lab_transform_E(hnum,nm,vm,1)
           p%lam=lam2hnu(p%hnu)
